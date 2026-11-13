@@ -52,6 +52,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
+# Remove the package managers bundled in the Node base image (npm, npx, corepack, yarn v1).
+# The backend runs with plain `node`; these are unused at runtime but ship their own
+# outdated dependencies (e.g. brace-expansion, undici) that image scanners flag.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 # From here on we use the least-privileged `node` user to run the backend.
 USER node
 WORKDIR /app
