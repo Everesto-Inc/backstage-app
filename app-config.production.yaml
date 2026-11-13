@@ -68,18 +68,18 @@ auth:
         clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
         signIn:
           resolvers:
-            # GitHub username must match a User entity (examples/org.yaml) — anyone else is refused
+            # GitHub username must match a User entity (everesto-catalog/platform/org.yaml) — anyone else is refused
             - resolver: usernameMatchingUserEntityName
 
 catalog:
   locations:
-    - type: file
-      target: ./examples/entities.yaml
+    # everesto.live catalog — private repo, read with integrations.github token (GITHUB_TOKEN,
+    # from Infisical). Changes there show up within minutes, no image rebuild.
+    - type: url
+      target: https://github.com/Everesto-Inc/everesto-catalog/blob/main/all.yaml
+      rules:
+        - allow: [Location, Domain, System, Component, Resource, API, Group, User]
     - type: file
       target: ./examples/template/template.yaml
       rules:
         - allow: [Template]
-    - type: file
-      target: ./examples/org.yaml
-      rules:
-        - allow: [User, Group]

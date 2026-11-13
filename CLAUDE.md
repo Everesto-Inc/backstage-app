@@ -12,7 +12,7 @@
 |---|---|
 | Backstage | new frontend system (`@backstage/frontend-defaults`), new backend system |
 | Node | 22 (`.nvmrc`) — `node_modules` is compiled for 22, Node 20 breaks `better-sqlite3` |
-| Login (prod) | GitHub OAuth, resolver `usernameMatchingUserEntityName` — only users in `examples/org.yaml` |
+| Login (prod) | GitHub OAuth, resolver `usernameMatchingUserEntityName` — only users in `everesto-catalog/platform/org.yaml` (private repo, read with `GITHUB_TOKEN`) |
 | Login (local) | Guest, signed in **as** `user:default/jacer7` (`app-config.local.yaml`) |
 | Database (prod) | PostgreSQL on the GCP VM, TLS verified with pinned CA, one schema per plugin |
 | Database (local) | in-memory SQLite (wiped on restart) |
@@ -179,7 +179,7 @@ AppProject — all owned by the space. Same pattern as `backstage-app` ↔ `gito
 | Application | `Component` (CI repo), `partOf` the System; space gitops repo = `Resource` of the System |
 | User | `User` (`metadata.name` = GitHub username, `profile.email` = invite email) |
 
-Org data moves from `examples/org.yaml` to a git-backed catalog repo that templates write to.
+Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling folder `../everesto-catalog`), which templates will write to.
 
 ## 7. Backstage built-in vs. our work
 

@@ -8,7 +8,7 @@
  * leaked read token can browse the catalog but cannot reach the scaffolder's
  * GitHub token or register an SSRF catalog location.
  *
- * To grant someone these rights: add them to `platform-team` in examples/org.yaml.
+ * To grant someone these rights: add them to `platform-team` in everesto-catalog/platform/org.yaml.
  */
 import { createBackendModule } from '@backstage/backend-plugin-api';
 import { policyExtensionPoint } from '@backstage/plugin-permission-node/alpha';
