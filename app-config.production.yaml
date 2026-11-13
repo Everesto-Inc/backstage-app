@@ -7,7 +7,11 @@ app:
 
 backend:
   baseUrl: https://backstage.everesto.live
-  listen: ':7007'
+  # Object form, same as app-config.yaml: the Helm chart also injects
+  # APP_CONFIG_backend_listen_port, which makes backend.listen an object —
+  # a string here crashes startup ("got string, wanted object").
+  listen:
+    port: 7007
   cors:
     origin: https://backstage.everesto.live
   # Tighten the base config's permissive dev CSP (which allows connecting to any
