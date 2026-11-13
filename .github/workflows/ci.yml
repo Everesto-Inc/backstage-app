@@ -1,0 +1,138 @@
+# Build Backstage → ghcr.io (linux/arm64, the A1 nodes) → bump the tag in gitops-backstage → ArgoCD deploys.
+# Same pattern as my_portfolio. Secret needed: GITOPS_PAT (fine-grained, contents:write on gitops-backstage only).
+#
+# Speed:    native arm64 runner (no QEMU), cached yarn + node_modules + tsc incremental, tsc ‖ build in parallel,
+#           Docker layer cache (gha).
+# Security: actions pinned to commit SHAs, yarn audit gate (high+), Trivy image scan BEFORE anything is pushed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to main cancels the older, still-running pipeline.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: everesto-inc/backstage # ghcr.io needs lowercase; the org is Everesto-Inc
+
+jobs:
+  build-and-push:
+    name: Build, scan & push linux/arm64 image
+    # Native ARM runner: the image is built without QEMU emulation (native modules compile ~10x faster).
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.sha.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Backstage builds the backend OUTSIDE Docker (needs lots of RAM — never on our VMs)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+
+      - name: Cache yarn + node_modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.yarn/berry/cache
+            node_modules
+            packages/*/node_modules
+          key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.nvmrc', 'yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-${{ runner.arch }}-
+
+      - run: yarn install --immutable
+
+      # Fails on any high/critical advisory. Accepted exceptions live in .yarnrc.yml (npmAuditIgnoreAdvisories).
+      - name: Dependency audit
+        run: yarn npm audit --all --recursive --severity high
+
+      - name: Cache tsc incremental build info
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: dist-types
+          key: tsc-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: tsc-${{ runner.arch }}-
+
+      # tsc and the backend build are independent → run them at the same time; fail if either fails.
+      - name: Type-check + build backend (parallel)
+        run: |
+          yarn tsc & TSC=$!
+          yarn build:backend & BUILD=$!
+          wait $TSC; TSC_RC=$?
+          wait $BUILD; BUILD_RC=$?
+          exit $(( TSC_RC || BUILD_RC ))
+
+      - name: Image tag = short commit SHA
+        id: sha
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Build into the local Docker daemon only — nothing leaves the runner until the scan passes.
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: packages/backend/Dockerfile
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Fails the pipeline on HIGH/CRITICAL vulnerabilities that have a fix available
+      # (OS packages + node_modules). Accepted exceptions live in .trivyignore.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.tag }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          trivyignores: .trivyignore
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        run: docker push --all-tags "${REGISTRY}/${IMAGE_NAME}"
+
+  update-gitops:
+    name: Update image tag in gitops-backstage
+    needs: build-and-push
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/gitops-backstage
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops-backstage
+      - name: Bump the image tag in values.yaml
+        env:
+          TAG: ${{ needs.build-and-push.outputs.image_tag }}
+        run: |
+          sed -i -E "s|^(\s*tag:\s*).*$|\1\"${TAG}\"|" gitops-backstage/values.yaml
+          cd gitops-backstage
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add values.yaml
+          git diff --cached --quiet || git commit -m "chore: backstage image → ${TAG}"
+          git push

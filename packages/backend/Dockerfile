@@ -12,36 +12,29 @@
 #
 # Once the commands have been run, you can build the image using `yarn build-image`
 #
-# Alternatively, there is also a multi-stage Dockerfile documented here:
-# https://backstage.io/docs/deployment/docker#multi-stage-build
+# Two stages: native modules (isolated-vm, better-sqlite3) are compiled in `deps`,
+# which has python3/g++/make. The final image only gets the compiled node_modules,
+# so no compiler toolchain ships to production.
 
-FROM node:24-trixie-slim
+# ---------- Stage 1: install production dependencies (with build tools) ----------
+FROM node:24-trixie-slim AS deps
 
-# Install sqlite3 dependencies. You can skip this if you don't use sqlite3 in the image,
-# in which case you should also move better-sqlite3 to "devDependencies" in package.json.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
-    apt-get install -y --no-install-recommends libsqlite3-dev && \
+    # python3 + g++ + make: native modules (isolated-vm for the scaffolder) may compile on linux/arm64
+    apt-get install -y --no-install-recommends python3 g++ make && \
     rm -rf /var/lib/apt/lists/*
 
-# From here on we use the least-privileged `node` user to run the backend.
 USER node
-
-# This should create the app dir as `node`.
-# If it is instead created as `root` then the `tar` command below will fail: `can't create directory 'packages/': Permission denied`.
-# If this occurs, then ensure BuildKit is enabled (`DOCKER_BUILDKIT=1`) so the app dir is correctly created as `node`.
 WORKDIR /app
 
-# Copy files needed by Yarn
 COPY --chown=node:node .yarn ./.yarn
 COPY --chown=node:node .yarnrc.yml ./
 COPY --chown=node:node backstage.json ./
 
-# This switches many Node.js dependencies to production mode.
 ENV NODE_ENV=production
 
-# Copy repo skeleton first, to avoid unnecessary docker cache invalidation.
 # The skeleton contains the package.json of each package in the monorepo,
 # and along with yarn.lock and the root package.json, that's enough to run yarn install.
 COPY --chown=node:node yarn.lock package.json packages/backend/dist/skeleton.tar.gz ./
@@ -49,6 +42,24 @@ RUN tar xzf skeleton.tar.gz && rm skeleton.tar.gz
 
 RUN --mount=type=cache,target=/home/node/.cache/yarn,sharing=locked,uid=1000,gid=1000 \
     yarn workspaces focus --all --production && rm -rf "$(yarn cache clean)"
+
+# ---------- Stage 2: runtime (no compilers) ----------
+FROM node:24-trixie-slim
+
+# Pull in Debian security fixes released since the base image was built.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+# From here on we use the least-privileged `node` user to run the backend.
+USER node
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Dependencies (already compiled) + yarn files from the deps stage
+COPY --from=deps --chown=node:node /app ./
 
 # This will include the examples, if you don't need these simply remove this line
 COPY --chown=node:node examples ./examples

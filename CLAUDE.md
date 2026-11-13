@@ -1,0 +1,251 @@
+# CLAUDE.md — backstage-app
+
+> Backstage developer portal for the everesto.live platform — https://backstage.everesto.live
+> Parent `oracle/CLAUDE.md` applies (free tier only, ARM images, ArgoCD deploys everything).
+> Deployment manifests live in the sibling repo `../gitops-backstage/` (public — no secrets, no internal IPs).
+
+---
+
+## Stack
+
+| Piece | Choice |
+|---|---|
+| Backstage | new frontend system (`@backstage/frontend-defaults`), new backend system |
+| Node | 22 (`.nvmrc`) — `node_modules` is compiled for 22, Node 20 breaks `better-sqlite3` |
+| Login (prod) | GitHub OAuth, resolver `usernameMatchingUserEntityName` — only users in `examples/org.yaml` |
+| Login (local) | Guest, signed in **as** `user:default/jacer7` (`app-config.local.yaml`) |
+| Database (prod) | PostgreSQL on the GCP VM, TLS verified with pinned CA, one schema per plugin |
+| Database (local) | in-memory SQLite (wiped on restart) |
+| Secrets (prod) | Infisical → ESO → k8s secret `backstage-secrets` (env vars + `POSTGRES_CA` mounted as file) |
+| Secrets (local) | none |
+| Permissions | custom policy `packages/backend/src/modules/permissionPolicy.ts` (writes = `platform-team` only) |
+| Image | `ghcr.io/everesto-inc/backstage`, linux/arm64, built by `.github/workflows/ci.yml` |
+| Deploy | CI bumps tag in `gitops-backstage/values.yaml` → ArgoCD → NodePort 30700 → Traefik on alb |
+
+## Config files
+
+| File | Loaded by | Purpose |
+|---|---|---|
+| `app-config.yaml` | always | base / local dev defaults |
+| `app-config.local.yaml` | `yarn start` only (gitignored, not in image) | guest-as-jacer7 login |
+| `app-config.production.yaml` | container `CMD` / Helm `args` | real URL, CSP, Postgres+TLS, GitHub auth |
+
+## Run locally
+
+```bash
+nvm use 22
+yarn install        # first time / after yarn.lock changes
+yarn start          # http://localhost:3000 → click "Guest"
+pkill -f backstage-cli   # stop
+```
+Right after start, Guest may lack `platform-team` for ~20 s until the catalog has ingested `org.yaml`.
+
+## Gotchas
+- Guest provider is only loaded when `NODE_ENV !== 'production'` (`packages/backend/src/index.ts`).
+- Audit exceptions must be kept in sync in **both** `.yarnrc.yml` (`npmAuditIgnoreAdvisories`) and `.trivyignore`.
+- Each plugin has its own DB pool (max 3) — the GCP Postgres allows ~100 connections.
+- Never commit secrets; `*.local.yaml` and `.env` are gitignored.
+
+---
+
+
+# Product requirements — multi-tenant DevOps portal
+
+> Status: **draft / target design**. Nothing below is implemented yet.
+
+## 1. Hierarchy
+
+```
+Platform  (Backstage itself — run by platform-admins)
+ └── Entity        RARE ANIMAL name     e.g. blackbuck       tenant / organisation
+      └── Project  RIVER name           e.g. seine           unit of onboarding = one DevOps Space
+           └── Applications  <river>-<what>                  each one ALWAYS has a CI part + a CD part
+                ├── seine-java-backend      (CI repo)  ┐
+                ├── seine-react-frontend    (CI repo)  ├─ CD: folders in ONE repo seine-gitops-cd
+                └── seine-storage-pipeline  (CI repo)  ┘
+```
+
+Rules:
+- A project belongs to **exactly one** entity.
+- Each project has **one DevOps Space**; a space holds **many applications** (frontend, backend,
+  pipelines …). Every application has a CI block and a CD block.
+- **Onboarding is per project**, not per entity.
+- A user can be a member of **several spaces, also in other entities**. Example: `user-fox`
+  (a user of entity *fox*, illustrative) is invited into the `seine` space → sees two spaces.
+
+## 2. Naming convention (enforced by templates)
+
+Backstage names: lowercase, `a-z0-9-`, max 63 chars. Templates validate with a regex + allow-list.
+
+| Level | Rule | Examples |
+|---|---|---|
+| Entity | rare animal | `blackbuck`, `okapi`, `axolotl`, `saola`, `vaquita`, `kakapo`, `pangolin`, `aye-aye`, `takin`, `markhor`, `dhole`, `snow-leopard`, `red-panda`, `shoebill` |
+| Project / Space | river | `seine`, `loire`, `rhone`, `danube`, `rhine`, `volga`, `mekong`, `yukon`, `zambezi`, `karnali`, `indus`, `tagus` |
+| Application (CI) | `<river>-<tech>-<role>` | `seine-java-backend`, `seine-react-frontend` |
+| Space CD repo | `<river>-gitops-cd` (one per space, folder per app) | `seine-gitops-cd/java-backend/` |
+
+Project (river) names must be unique across the whole platform — they prefix repo names in GitHub.
+
+### Name picker (river, same mechanism for animals)
+
+The create-project form has a **combo box** (dropdown + free text):
+- **Suggestions** come from a large built-in river list (hundreds of names).
+- Names **already taken are hidden** from the dropdown (taken = a `System` with that name exists in the
+  catalog, or a repo `Everesto-Inc/<name>-*` exists).
+- The user may **type their own** river name instead.
+- Validation, both in the form and again server-side in the template's first step (avoids two people
+  grabbing the same name at once): format regex, not taken, max length leaves room for
+  `-<tech>-<role>` suffixes in repo names.
+
+Implementation: custom scaffolder **field extension** (MUI Autocomplete `freeSolo`) querying the
+catalog API + a small custom action `everesto:name:check-available`.
+
+## 3. Who can do what — three admin levels
+
+Decision: **super admin is a platform role, not a "Super DevOps Space".**
+A space is tenant data; mixing platform administration into it would let a tenant-level
+membership change grant platform-wide power. A separate `platform-admins` group is simpler to
+enforce in the permission policy and to audit.
+
+| Level | Group | Can |
+|---|---|---|
+| Platform | `platform-admins` (today: `platform-team`) | create/delete **entities**, name the entity owner, everything below |
+| Entity | `<animal>-admins` e.g. `blackbuck-admins` | create/delete **projects** (spaces) in their entity, name space owners |
+| Space | roles below | work inside the space |
+
+### Space roles
+
+| Role | Can |
+|---|---|
+| `viewer` | see everything in the space |
+| `developer` | view + push code, run pipelines, create applications. **Cannot delete.** |
+| `maintainer` | developer + delete applications, change tool settings |
+| `owner` | maintainer + invite/remove members, assign roles |
+
+A team **manager** = `maintainer` (includes developer rights).
+
+### Access follows the role into every tool
+
+| Tool | developer | maintainer / owner |
+|---|---|---|
+| GitHub (org `Everesto-Inc`, one team per space role) | team `seine-developers`: `write` on `seine-*` repos | team `seine-maintainers`: `maintain` |
+| SonarQube | browse + see source | administer project |
+| ArgoCD | AppProject per space: view + sync | + delete / override |
+| Infisical | developer on the space's secrets | admin |
+
+Deletes run as a Backstage action (maintainer+ only) with the platform bot token — humans never need GitHub `admin`.
+
+## 4. Inviting users (by email)
+
+Login stays **GitHub** — every user needs a GitHub account and is invited into the GitHub
+organisation **`Everesto-Inc`**. Invitations are by email:
+
+1. Space owner enters `email` + `role` → Backstage creates a pending `User` (email in `profile.email`).
+2. Invitation email with a link to Backstage (+ invite to GitHub org `Everesto-Inc` by email via the GitHub API).
+3. User signs in with GitHub → custom sign-in resolver reads the user's **verified** GitHub emails
+   (`user:email` scope) and matches the pending invitation → binds GitHub username to the `User`.
+4. Access sync grants GitHub / SonarQube / ArgoCD / Infisical rights for the role.
+
+Unmatched GitHub logins are refused (as today).
+
+## 5. Golden path — create an application
+
+Inside a space, Backstage **Software Template**:
+
+1. Name: `seine-java-backend` (prefix = space's river, fixed)
+2. SCM: **GitHub** (only option)
+3. Technology: **Java** (later Node, Python, Go …)
+4. Quality: **SonarQube** (existing, tools node)
+5. Secrets: **Infisical** (default, pre-selected)
+6. CD: **ArgoCD** (existing)
+
+Creates and registers:
+
+| Repo | Contains |
+|---|---|
+| `seine-java-backend` | skeleton + GitHub Actions **CI**: test → SonarQube quality gate → build ARM image → push ghcr.io → bump tag in the space's gitops repo |
+| `seine-gitops-cd` (one per **space**, created with the space) | folder `java-backend/` added for this app → **CD**: an ArgoCD ApplicationSet per space syncs every folder to namespace `seine` |
+
+Plus SonarQube project, Infisical folder + ESO `ExternalSecret`, ArgoCD Application in the space's
+AppProject — all owned by the space. Same pattern as `backstage-app` ↔ `gitops-backstage`.
+
+## 6. Mapping onto Backstage
+
+| Our concept | Backstage kind |
+|---|---|
+| Entity (animal) | `Domain` + `Group` type `organization` (`blackbuck`, `blackbuck-admins`) |
+| Project / Space (river) | `System` + `Group` type `team` with role sub-groups (`seine-owners`, `-maintainers`, `-developers`, `-viewers`) |
+| Application | `Component` (CI repo), `partOf` the System; space gitops repo = `Resource` of the System |
+| User | `User` (`metadata.name` = GitHub username, `profile.email` = invite email) |
+
+Org data moves from `examples/org.yaml` to a git-backed catalog repo that templates write to.
+
+## 7. Backstage built-in vs. our work
+
+| Need | Backstage | Work |
+|---|---|---|
+| Catalog of entities / projects / apps | built-in | model + catalog repo |
+| Create-application wizard | Software Templates | templates + custom actions (SonarQube, Infisical, ArgoCD) |
+| CI block | GitHub Actions plugin | install |
+| CD block | ArgoCD + Kubernetes plugins | install + config |
+| Quality | SonarQube plugin | install |
+| Roles in Backstage | permission framework | extend `permissionPolicy.ts` (3 admin levels + space roles) |
+| **Space UI: invite / roles** | **not built-in** | custom page or templates |
+| **Email invitation + GitHub binding** | **not built-in** | custom sign-in resolver + invite flow |
+| **Role sync to GitHub / Sonar / ArgoCD / Infisical** | **not built-in** | custom actions or backend sync module |
+
+## 8. Phases
+
+1. **Catalog model** — entities, projects, spaces, users in a catalog repo; naming validation.
+2. **Golden path** — Java template: app repo + gitops repo + Sonar + Infisical + ArgoCD app.
+3. **CI/CD views** — GitHub Actions, SonarQube, ArgoCD, Kubernetes plugins.
+4. **Permissions** — platform-admin / entity-admin / space roles in the policy.
+5. **Space management + email invites** — owner invites by email, assigns roles.
+6. **Access sync** — roles propagated to GitHub, SonarQube, ArgoCD, Infisical.
+
+## 9. Architecture decisions
+
+1. **One gitops repo per space** (`seine-gitops-cd`, folder per app) instead of one per application:
+   half the repos, one ArgoCD ApplicationSet per space, one place to see what a space deploys.
+2. **Spaces, members and roles live in Backstage's Postgres** (custom catalog entity provider + small
+   API), not in git YAML — an invite must not be a git commit. Git keeps templates + app `catalog-info.yaml`.
+3. **Tool access is reconciled, not fired once.** Backstage is the source of truth; a scheduled backend
+   job makes GitHub teams, SonarQube groups, ArgoCD AppProjects and Infisical match it (idempotent,
+   repairs manual drift).
+4. **Tenant isolation in K3s**, per space:
+   - namespace `<river>` (e.g. `seine`)
+   - `ResourceQuota` (e.g. 512Mi) + `LimitRange` defaults
+   - `NetworkPolicy`: deny traffic from other spaces' namespaces
+   - ArgoCD `AppProject`: only its own namespace + its own repos
+5. **Node placement:**
+
+   | Node | Pool | Runs |
+   |---|---|---|
+   | `dev-k3s-control-plane` (2 vCPU / 10 GB) | platform | K3s API, AWX, ArgoCD, ESO, platform apps — **never tenant apps** |
+   | `dev-k3s-argocd` (1 vCPU / 4 GB) | `everesto.live/pool=tenants` | Backstage + all apps created from Backstage |
+   | `dev-k3s-tools` (if joined to K3s later) | `everesto.live/pool=tenants` | extra tenant capacity |
+
+   Node label set by ansible `01_v2_join_k3s_workers.yml`; templates write
+   `nodeSelector: {everesto.live/pool: tenants}` into every generated manifest.
+   Budget on the argocd node: ~4 GB − OS 0.7 − Backstage ≤1.5 → **~1.5–2 GB for all tenant apps**.
+   Measured 2026-11-13: control-plane 6.2 GB used (all workloads), argocd node 0.7 GB (nothing scheduled).
+
+## 10. Constraints
+
+- Free tier: A1.Flex is at cap → apps share the existing K3s nodes; no per-tenant clusters.
+  Realistic scale: a demo with 1–2 entities and a handful of small apps, not real tenants.
+- ARM (`linux/arm64`) images only.
+- GitHub Free org: private repos share a monthly Actions-minutes quota, and the free native
+  `ubuntu-24.04-arm` runners are (last checked) for **public** repos only → private tenant repos need
+  QEMU builds on `ubuntu-latest` (~5–10× slower) or a self-hosted ARM runner (no spare RAM).
+  Verify before the golden path is built; decide public vs private tenant repos.
+- Exposed apps need a Traefik route on alb (ansible repo `files/traefik/conf.d/`).
+
+## 11. Decisions
+
+- **One GitHub organisation for everything: `Everesto-Inc`.** All repos live there
+  (`Everesto-Inc/seine-java-backend`, `Everesto-Inc/seine-gitops-cd`). Tenants are separated by
+  GitHub **teams** per space role, not by orgs. Repos are **private** by default.
+- Project names: river suggestions (taken ones hidden) **or** free input, validated for uniqueness.
+- Super admin = `platform-admins` group, not a space.
+- Users invited by email; login with GitHub.
