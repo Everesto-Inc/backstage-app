@@ -125,14 +125,14 @@ jobs:
           repository: ${{ github.repository_owner }}/gitops-backstage
           token: ${{ secrets.GITOPS_PAT }}
           path: gitops-backstage
-      - name: Bump the image tag in values.yaml
+      - name: Bump the image tag in apps/prod/values.yaml
         env:
           TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          sed -i -E "s|^(\s*tag:\s*).*$|\1\"${TAG}\"|" gitops-backstage/values.yaml
+          sed -i -E "s|^(\s*tag:\s*).*$|\1\"${TAG}\"|" gitops-backstage/apps/prod/values.yaml
           cd gitops-backstage
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add values.yaml
+          git add apps/prod/values.yaml
           git diff --cached --quiet || git commit -m "chore: backstage image → ${TAG}"
           git push
