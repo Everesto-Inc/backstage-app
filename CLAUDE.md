@@ -16,11 +16,12 @@
 | Login (local) | Guest, signed in **as** `user:default/jacer7` (`app-config.local.yaml`) |
 | Database (prod) | PostgreSQL on the GCP VM, TLS verified with pinned CA, one schema per plugin |
 | Database (local) | in-memory SQLite (wiped on restart) |
-| Secrets (prod) | Infisical → ESO → k8s secret `backstage-secrets` (env vars + `POSTGRES_CA` mounted as file) |
+| Secrets (prod) | Infisical project `backstage`/`prod` → ClusterSecretStore `infisical-backstage` (login in ns `external-secrets`) → ESO → secret `backstage-secrets` in ns `prod-backstage` |
 | Secrets (local) | none |
 | Permissions | custom policy `packages/backend/src/modules/permissionPolicy.ts` (writes = `platform-team` only) |
 | Image | `ghcr.io/everesto-inc/backstage`, linux/arm64, built by `.github/workflows/ci.yml` |
-| Deploy | CI bumps tag in `gitops-backstage/values.yaml` → ArgoCD → NodePort 30700 → Traefik on alb |
+| Deploy | CI bumps tag in `gitops-backstage/values.yaml` → ArgoCD project `backstage` → ns `prod-backstage` → NodePort 30700 → Traefik on alb |
+| Environments | **dev** = local (`yarn start`) · **prod** = K3s ns `prod-backstage` (only one in-cluster copy) |
 
 ## Config files
 
@@ -217,7 +218,14 @@ Org data moves from `examples/org.yaml` to a git-backed catalog repo that templa
    - `ResourceQuota` (e.g. 512Mi) + `LimitRange` defaults
    - `NetworkPolicy`: deny traffic from other spaces' namespaces
    - ArgoCD `AppProject`: only its own namespace + its own repos
-5. **Node placement:**
+5. **Secrets at scale (ESO):** one ESO for the cluster; per **space**: 1 Infisical project
+   (envs dev/prod, folder per app), 1 machine identity (Viewer on that project only),
+   1 `ClusterSecretStore infisical-<river>` restricted by `conditions` to the space's namespace,
+   login secret in ns `external-secrets` (platform only). Per **app**: 1 folder + 1 ExternalSecret.
+   The "create space" template provisions all of it via the Infisical API. Backstage itself is
+   the first instance (`gitops-backstage/platform/cluster-secret-store.yaml`).
+   Check later: ESO Kubernetes Auth for Infisical → no client secrets to manage at all.
+6. **Node placement:**
 
    | Node | Pool | Runs |
    |---|---|---|
