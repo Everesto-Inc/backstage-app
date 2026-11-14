@@ -515,3 +515,58 @@ export async function newEsoLogin(config: Config, repo: string, refs: string[], 
     cmd: `sudo kubectl -n external-secrets delete secret infisical-${repo}-auth --ignore-not-found\nsudo kubectl -n external-secrets create secret generic infisical-${repo}-auth \\\n  --from-literal=clientId='${clientId}' --from-literal=clientSecret='${cs.json.clientSecret}'`,
   };
 }
+
+// ---------- secrets of a deployment (Infisical <repo>-gitops) — values are write-only ----------
+// dev: developers / maintainers / owners · prod: maintainers / owners. Listing (names only): any member.
+
+const SECRET_ROLES: Record<Env, string[]> = { dev: ['owners', 'maintainers', 'developers'], prod: ['owners', 'maintainers'] };
+
+async function secretsCtx(config: Config, repo: string) {
+  const token = await githubToken(config, OWNER);
+  const { project } = await appInfo(token, repo);
+  const { api } = await infisical(config);
+  const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
+  if (!ws) throw err(404, `Infisical project ${repo}-gitops not found — create the deployment first`);
+  return { project, api, ws };
+}
+
+const refresh = (repo: string, project: string, env: Env) =>
+  `sudo kubectl -n ${ns(project, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
+  `sudo kubectl -n ${ns(project, env)} rollout restart deployment ${repo}`;
+
+export async function secretsList(config: Config, repo: string, env: Env, refs: string[]) {
+  const { project, api, ws } = await secretsCtx(config, repo);
+  if (!allowed(refs, project, ['owners', 'maintainers', 'developers', 'viewers'])) throw err(403, `only members of ${project} can see secret names`);
+  const r = await api('GET', `/api/v3/secrets/raw?workspaceId=${ws.id}&environment=${env}&secretPath=/`);
+  if (!r.ok) throw err(502, `Infisical: cannot list secrets (${r.status})`);
+  return {
+    env,
+    canEdit: allowed(refs, project, SECRET_ROLES[env]),
+    // names + dates only — values never leave the backend
+    secrets: ((r.json?.secrets ?? []) as any[]).map(s => ({ name: s.secretKey as string, updatedAt: (s.updatedAt ?? s.createdAt) as string, placeholder: s.secretValue === 'CHANGE_ME' }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    applyCmd: refresh(repo, project, env),
+    infisicalUrl: `${config.getString('infisical.url')}/project/${ws.id}/secrets/overview`,
+  };
+}
+
+export async function secretSet(config: Config, repo: string, env: Env, name: string, value: string, refs: string[]) {
+  if (!NAME.test(name)) throw err(400, `invalid name ${name} (A-Z 0-9 _)`);
+  if (!value) throw err(400, 'value is empty');
+  const { project, api, ws } = await secretsCtx(config, repo);
+  if (!allowed(refs, project, SECRET_ROLES[env])) throw err(403, `only ${SECRET_ROLES[env].join('/')} of ${project} can change ${env} secrets`);
+  const body = { workspaceId: ws.id, environment: env, secretPath: '/', secretValue: value, type: 'shared' };
+  let r = await api('PATCH', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, body);
+  if (!r.ok) r = await api('POST', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, body); // new secret
+  if (!r.ok) throw err(502, `Infisical: cannot save ${name} (${r.status})`);
+  return { saved: name, env, applyCmd: refresh(repo, project, env) };
+}
+
+export async function secretDelete(config: Config, repo: string, env: Env, name: string, refs: string[]) {
+  if (!NAME.test(name)) throw err(400, `invalid name ${name}`);
+  const { project, api, ws } = await secretsCtx(config, repo);
+  if (!allowed(refs, project, SECRET_ROLES[env])) throw err(403, `only ${SECRET_ROLES[env].join('/')} of ${project} can delete ${env} secrets`);
+  const r = await api('DELETE', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, { workspaceId: ws.id, environment: env, secretPath: '/', type: 'shared' });
+  if (!r.ok) throw err(502, `Infisical: cannot delete ${name} (${r.status})`);
+  return { deleted: name, env, applyCmd: refresh(repo, project, env) };
+}

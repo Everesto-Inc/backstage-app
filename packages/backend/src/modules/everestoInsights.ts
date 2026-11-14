@@ -15,7 +15,7 @@ import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
-import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, setupCommands } from './everestoDeploy';
+import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 
 const OWNER = 'Everesto-Inc';
@@ -316,6 +316,39 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const { refs, who } = await caller(req);
             const out = await newEsoLogin(config, repo, refs, who);
             logger.info(`new ESO login for ${repo} by ${who}`); // never log out.cmd (secret)
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        const envOf = (v: unknown): 'dev' | 'prod' | undefined => (['dev', 'prod'].includes(String(v)) ? (v as 'dev' | 'prod') : undefined);
+
+        router.get('/apps/:repo/secrets', async (req, res) => {
+          const { repo } = req.params;
+          const secEnv = envOf(req.query.env);
+          if (!validRepo(repo) || !secEnv) { res.status(400).json({ error: 'invalid repo or env' }); return; }
+          try { const { refs } = await caller(req); res.json(await secretsList(config, repo, secEnv, refs)); } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/secrets', async (req, res) => {
+          const { repo } = req.params;
+          const secEnv = envOf(req.body?.env);
+          if (!validRepo(repo) || !secEnv) { res.status(400).json({ error: 'invalid repo or env' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await secretSet(config, repo, secEnv, str(req.body?.name), typeof req.body?.value === 'string' ? req.body.value : '', refs);
+            logger.info(`secret ${out.saved} (${secEnv}) of ${repo} set by ${who}`); // never log the value
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/secrets/delete', async (req, res) => {
+          const { repo } = req.params;
+          const secEnv = envOf(req.body?.env);
+          if (!validRepo(repo) || !secEnv) { res.status(400).json({ error: 'invalid repo or env' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await secretDelete(config, repo, secEnv, str(req.body?.name), refs);
+            logger.info(`secret ${out.deleted} (${secEnv}) of ${repo} DELETED by ${who}`);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
