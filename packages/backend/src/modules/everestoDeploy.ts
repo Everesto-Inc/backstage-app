@@ -285,7 +285,10 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean) =
     { title: `4. ArgoCD project ${project} + app ${repo}-dev`, cmd: `sudo kubectl apply -f ${raw}/argocd.yaml` },
     { title: `5. Deploy: ArgoCD → ${repo}-dev → Sync`, cmd: `# or: sudo kubectl -n argocd patch application ${repo}-dev --type merge -p '{"operation":{"sync":{}}}'` },
   ];
-  if (hasProd) c.push({ title: `6. Prod (after the first promote PR is merged): secret store + app ${repo}-prod`, cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml` });
+  c.push({
+    title: `6. Prod — ONLY after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}: secret store + app ${repo}-prod, then Sync ${repo}-prod`,
+    cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml`,
+  });
   c.push({ title: 'Check', cmd: `sudo kubectl -n argocd get applications | grep ${repo}\nsudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` });
   return c;
 };
