@@ -130,7 +130,9 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
           <Typography variant="body2" color="textSecondary">{e.metadata.description ?? e.metadata.name}</Typography>
         </Box>
         <PipelineFlow entity={e} tools={tools} size={48} labels />
-        <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
+        {(demo || kind !== 'cd')
+          ? <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
+          : <span /> /* real CD: Deploy / Promote / Delete deployment are on the card */}
       </div>
 
       {!demo && kind === 'ci' && <RealCiMetrics entity={e} />}

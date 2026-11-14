@@ -20,6 +20,8 @@ import { STATUS } from './charts';
 import { ToolLogo } from './ToolLogo';
 import { EditPipelineDialog, SWITCHABLE } from '../space/EditPipelineDialog';
 import { useDemoData } from '../space/demo';
+import { CdActions } from '../space/CdActions';
+import { insightsTarget, useInsights } from '../space/insights';
 
 const useStyles = makeStyles(theme => ({
   row: {
@@ -65,8 +67,56 @@ const Badge = ({ state }: { state: ToolState }) => {
 
 type Action = { tool: Tool; kind: 'add' | 'remove' | 'reconnect' };
 
+/**
+ * CD (Resource <app>-gitops) — real mode. Rules: ArgoCD is the deployment tool (Ansible excluded while ArgoCD is
+ * active, and vice versa), Infisical is always on, Grafana comes later. No per-tool remove: the deployment as a
+ * whole is deleted (owners) via "Delete deployment".
+ */
+const CdToolsCard = () => {
+  const classes = useStyles();
+  const { entity } = useEntity();
+  const { value: d, retry } = useInsights(entity);
+  const project = String(entity.spec?.system ?? '');
+  const repo = insightsTarget(entity).repo;
+  const tool = (id: string) => CD_TOOLS.find(t => t.id === id)!;
+  const rows: { tool: Tool; label: string; note: string; on: boolean }[] = [
+    { tool: tool('cd'), label: 'Active', note: `apps ${repo}-dev${d?.envs?.prod ? ` / ${repo}-prod` : ''} · manual sync`, on: true },
+    { tool: tool('config'), label: 'Not used', note: 'excluded while ArgoCD deploys this app (one deployment tool per app)', on: false },
+    { tool: tool('secrets'), label: 'Always on', note: `Infisical project ${repo}-gitops → ESO → Secret ${repo}`, on: true },
+    { tool: tool('monitoring'), label: 'Coming later', note: 'dashboards and alerts', on: false },
+  ];
+  return (
+    <InfoCard title="Tools" subheader="ArgoCD + Infisical · every deployment">
+      {rows.map(r => (
+        <div key={r.tool.id} className={classes.row} style={r.on ? undefined : { opacity: 0.55 }}>
+          <ToolLogo tool={r.tool} />
+          <Box minWidth={0}>
+            <Box display="flex" alignItems="center" style={{ gap: 8 }}>
+              <span className={classes.name}>{r.tool.name}</span>
+              {r.on
+                ? <span className={classes.badge} style={{ color: STATUS.good, background: 'rgba(12,163,12,0.12)' }}><CheckCircle style={{ fontSize: 14 }} /> {r.label}</span>
+                : <span className={classes.badge} style={{ background: 'rgba(128,128,128,0.15)' }}>{r.label}</span>}
+            </Box>
+            <div className={classes.desc}>{r.note}</div>
+          </Box>
+        </div>
+      ))}
+      <Box mt={2}>
+        <CdActions repo={repo} project={project} devTag={d?.envs?.dev?.tag} prodTag={d?.envs?.prod?.tag} onChange={retry} />
+      </Box>
+    </InfoCard>
+  );
+};
+
 /** "Tools" card on an application's Overview. */
 export const ToolsCard = () => {
+  const { entity } = useEntity();
+  const demo = useDemoData();
+  if (!demo && entity.kind === 'Resource') return <CdToolsCard />;
+  return <CiToolsCard />;
+};
+
+const CiToolsCard = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const identityApi = useApi(identityApiRef);
