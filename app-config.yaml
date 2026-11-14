@@ -19,6 +19,35 @@ app:
     # Visit data is stored via UserSettings storage if available, otherwise browser localStorage.
     # - api:home/visits: true
     # - app-root-element:home/visit-listener: true
+
+    # Entities (domain) and projects (system) use the DevOps Space pages instead of the
+    # generic Overview (packages/app/src/modules/space). Listed order = tab order.
+    - entity-content:catalog/overview:
+        config:
+          filter: kind:component,api,resource,group,user,template,location
+    - entity-content:catalog/devops-space
+    - entity-content:catalog/project-pipelines
+    - entity-content:techdocs:
+        config:
+          title: Tech Docs
+          group: false
+    - entity-content:catalog/project-startup
+    - entity-content:catalog/project-apis
+    - entity-content:catalog/project-members
+    - entity-content:catalog/project-connections
+
+    # Overview card order on applications: Tools above the relations graph
+    - entity-card:catalog/devops-tools:
+        config:
+          type: content
+    - entity-card:catalog-graph/relations
+
+    # Built-in themes replaced by everesto light/dark (packages/app/src/modules/theme)
+    - theme:app/light: false
+    - theme:app/dark: false
+
+    # Random Joke widget calls an external joke API from the browser — fails (prod CSP blocks it).
+    - home-page-widget:home/random-joke: false
     - home-page-widget:home/toolkit:
         config:
           tools:
@@ -65,11 +94,6 @@ app:
               height: 11
             - component: HomePageStarredEntities
               column: 4
-              row: 2
-              width: 4
-              height: 4
-            - component: HomePageRandomJoke
-              column: 8
               row: 2
               width: 4
               height: 4

@@ -52,11 +52,12 @@ backend:
         rejectUnauthorized: true
         ca:
           $file: /etc/backstage/postgres/ca.crt
-    # Each plugin gets its own pool — keep them small for a 1 GB database VM
+    # Each plugin gets its own pool. The shared Postgres allows only 30 connections
+    # (Infisical uses it too) → max 2 per plugin (~13 plugins ≈ 26 at peak).
     knexConfig:
       pool:
         min: 0
-        max: 3
+        max: 2
 
 auth:
   environment: production
