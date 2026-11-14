@@ -14,7 +14,8 @@ import { Config } from '@backstage/config';
 import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
-import { ToolChange, deleteApp, setTools } from './everestoManage';
+import { ToolChange, deleteApp, readFile, setTools } from './everestoManage';
+import { createDeployment, promote } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 
 const OWNER = 'Everesto-Inc';
@@ -65,7 +66,7 @@ async function sonarMeasures(config: Config, key: string) {
   };
 }
 
-async function pipelineInsights(config: Config, repo: string, project?: string, app?: string, sonarKey?: string) {
+async function pipelineInsights(config: Config, repo: string, _project?: string, _app?: string, sonarKey?: string) {
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
 
@@ -115,12 +116,17 @@ async function pipelineInsights(config: Config, repo: string, project?: string, 
     if (d in perDay) perDay[d] += 1;
   }
 
-  let lastDeploy: { at: string; message: string; url: string } | undefined;
-  if (project && app) {
-    const dep = await gh(token, 'GET', `/repos/${OWNER}/${project}-gitops-cd/commits?path=${encodeURIComponent(app)}&per_page=1`);
+  // CD: <repo>-gitops — tag + last change per environment
+  const envs: Record<string, { tag?: string; at?: string; message?: string; url?: string }> = {};
+  const gitops = `${repo}-gitops`;
+  for (const env of ['dev', 'prod']) {
+    const k = await readFile(token, gitops, `apps/${env}/kustomization.yaml`);
+    if (!k) continue;
+    const dep = await gh(token, 'GET', `/repos/${OWNER}/${gitops}/commits?path=apps/${env}&per_page=1`);
     const c = dep.json?.[0];
-    if (c) lastDeploy = { at: c.commit?.committer?.date, message: c.commit?.message?.split('\n')[0], url: c.html_url };
+    envs[env] = { tag: k.match(/newTag:\s*(\S+)/)?.[1], at: c?.commit?.committer?.date, message: c?.commit?.message?.split('\n')[0], url: c?.html_url };
   }
+  const lastDeploy = envs.dev?.at ? { at: envs.dev.at, message: envs.dev.message ?? '', url: envs.dev.url ?? '' } : undefined;
 
   return {
     exists: true,
@@ -133,6 +139,8 @@ async function pipelineInsights(config: Config, repo: string, project?: string, 
     // no sonar key: SonarQube switched off for this app → never show (old) measures
     sonar: sonarKey ? await sonarMeasures(config, sonarKey).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
     lastDeploy,
+    envs: Object.keys(envs).length ? envs : undefined,
+    gitopsRepo: Object.keys(envs).length ? `https://github.com/${OWNER}/${gitops}` : undefined,
   };
 }
 
@@ -229,6 +237,34 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await deleteApp(config, repo, refs, unregister);
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`application ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/deployment', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const credentials = await auth.getOwnServiceCredentials();
+            const projectGitopsRepos = async (project: string) => (await catalog.getEntities(
+              { filter: { kind: 'Resource', 'spec.type': 'gitops', 'spec.system': project }, fields: ['metadata.name'] },
+              { credentials },
+            )).items.map(e => e.metadata.name);
+            const out = await createDeployment(config, repo, { infisical: req.body?.infisical === true }, refs, who, projectGitopsRepos);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`deployment for ${repo} created by ${who}: ${out.done.join(', ')}`); // never log out.commands (secret)
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/promote', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await promote(config, repo, refs, who);
+            logger.info(`promote ${repo} ${out.from} → ${out.to} by ${who}: ${out.url}`);
             res.json(out);
           } catch (e) { fail(res, e); }
         });

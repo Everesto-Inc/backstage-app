@@ -44,6 +44,8 @@ export type Insights = {
     error?: string;
   };
   lastDeploy?: { at: string; message: string; url: string };
+  envs?: Partial<Record<"dev" | "prod", { tag?: string; at?: string; message?: string; url?: string }>>;
+  gitopsRepo?: string;
 };
 
 /** repo = Component name; for a gitops Resource "<repo>-gitops" → deploy info from <project>-gitops-cd/<app>/. */

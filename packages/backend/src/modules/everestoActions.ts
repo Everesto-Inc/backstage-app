@@ -120,7 +120,7 @@ export async function sonarRemove(config: Config, owner: string, repo: string, k
 }
 
 /** RSA keypair: OpenSSH public key (for GitHub deploy key) + PEM private key (for the CI secret). */
-function sshKeyPair(comment: string) {
+export function sshKeyPair(comment: string) {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 4096 });
   const jwk = publicKey.export({ format: 'jwk' }) as { n: string; e: string };
   const mpint = (b64url: string) => {

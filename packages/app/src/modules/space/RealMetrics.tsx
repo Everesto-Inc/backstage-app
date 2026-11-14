@@ -1,7 +1,8 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { Entity } from '@backstage/catalog-model';
-import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
-import { Box, Grid, Link, Tooltip, Typography, makeStyles } from '@material-ui/core';
+import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { useIsProjectMaintainer } from './data';
+import { Box, Button, Grid, Link, Tooltip, Typography, makeStyles } from '@material-ui/core';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
 import RemoveCircleOutline from '@material-ui/icons/RemoveCircleOutline';
@@ -137,14 +138,43 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
 export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   const c = useStyles();
   const { value: d, loading } = useInsights(entity);
+  const project = String(entity.spec?.system ?? '');
+  const canPromote = useIsProjectMaintainer(project);
+  const discovery = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
+  const alertApi = useApi(alertApiRef);
+  const [busy, setBusy] = useState(false);
   if (loading) return <Box px={3} pb={2}><Muted>Loading…</Muted></Box>;
+  const repo = insightsTarget(entity).repo;
+  const dev = d?.envs?.dev;
+  const prod = d?.envs?.prod;
+  const promote = async () => {
+    setBusy(true);
+    try {
+      const base = await discovery.getBaseUrl('everesto');
+      const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}/promote`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      alertApi.post({ message: `Promote PR opened (${json.from} → ${json.to}) — merge it, then Sync ${repo}-prod in ArgoCD`, severity: 'success' });
+      window.open(json.url, '_blank', 'noopener');
+    } catch (e: any) {
+      alertApi.post({ message: `Promote failed: ${e.message}`, severity: 'error' });
+    } finally { setBusy(false); }
+  };
+  const env = (x?: { tag?: string; at?: string; url?: string }) =>
+    x?.tag ? <span><code>{x.tag}</code> · {x.url ? <Link href={x.url} target="_blank" rel="noopener">{ago(x.at)}</Link> : ago(x.at)}</span> : <Muted>not deployed yet</Muted>;
   return (
     <div className={c.metrics}>
-      <Metric label="Last deploy (gitops)">
-        {d?.lastDeploy ? <Link href={d.lastDeploy.url} target="_blank" rel="noopener">{ago(d.lastDeploy.at)}</Link> : <Muted>not deployed yet</Muted>}
+      <Metric label={`dev · ns ${project}-dev · auto-sync`}>{env(dev)}</Metric>
+      <Metric label={`prod · ns ${project}-prod · manual sync`}>
+        <Box>
+          {env(prod)}
+          {canPromote && dev?.tag && dev.tag !== prod?.tag && (
+            <Box mt={0.5}><Button size="small" variant="outlined" color="primary" disabled={busy} onClick={promote}>Promote {dev.tag} to prod</Button></Box>
+          )}
+        </Box>
       </Metric>
-      <Metric label="Change">{d?.lastDeploy ? <span style={{ fontWeight: 500, fontSize: 13 }}>{d.lastDeploy.message}</span> : <Muted>—</Muted>}</Metric>
-      <Metric label="Sync · health"><Muted>ArgoCD not connected yet</Muted></Metric>
+      <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
     </div>
   );
 };

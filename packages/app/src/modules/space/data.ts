@@ -87,4 +87,12 @@ export const useIsProjectOwner = (system: string) => {
   return refs.includes('group:default/platform-team') || refs.includes(`group:default/${system}-owners`);
 };
 
+/** maintainers + owners (+ platform-team): create deployments, promote, change tools. */
+export const useIsProjectMaintainer = (system: string) => {
+  const identityApi = useApi(identityApiRef);
+  const { value } = useAsync(() => identityApi.getBackstageIdentity(), []);
+  const refs = value?.ownershipEntityRefs ?? [];
+  return ['platform-team', `${system}-owners`, `${system}-maintainers`].some(g => refs.includes(`group:default/${g}`));
+};
+
 export const refOf = (e: Entity) => stringifyEntityRef(e);

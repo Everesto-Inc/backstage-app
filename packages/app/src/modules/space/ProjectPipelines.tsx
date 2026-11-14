@@ -9,10 +9,11 @@ import AccountTreeIcon from '@material-ui/icons/AccountTree';
 import ArrowBack from '@material-ui/icons/ArrowBack';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { useIsProjectOwner, useProjectParts } from './data';
+import { useIsProjectMaintainer, useIsProjectOwner, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
+import { CreateDeploymentDialog } from './CreateDeploymentDialog';
 import { EditPipelineDialog } from './EditPipelineDialog';
 import { days, metricsFor } from './metrics';
 import { useDemoData } from './demo';
@@ -252,6 +253,8 @@ export const ProjectPipelines = () => {
   const isOwner = useIsProjectOwner(project);
   const demo = useDemoData();
   const [creating, setCreating] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const canDeploy = useIsProjectMaintainer(project);
 
   if (loading) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
@@ -262,7 +265,13 @@ export const ProjectPipelines = () => {
       <Button size="small" startIcon={<ArrowBack />}>{domain} · all projects</Button>
     </EntityRefLink>
   );
-  const dialog = <CreatePipelineDialog project={project} open={creating} onClose={() => setCreating(false)} />;
+  const dialog = (
+    <>
+      <CreatePipelineDialog project={project} open={creating} onClose={() => setCreating(false)} />
+      <CreateDeploymentDialog project={project} open={deploying} onClose={() => setDeploying(false)}
+        apps={ci.filter(a => !cd.some(r => r.metadata.name === `${a.metadata.name}-gitops`))} />
+    </>
+  );
 
 
   if (ci.length + repoOnly.length + cd.length === 0)
@@ -296,7 +305,10 @@ export const ProjectPipelines = () => {
     <Box>
       <Box display="flex" alignItems="center" mb={2}>
         {back}
-        <Box ml="auto">
+        <Box ml="auto" display="flex" style={{ gap: 8 }}>
+          {canDeploy && !demo && (
+            <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
+          )}
           <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>Create pipeline</Button>
         </Box>
       </Box>

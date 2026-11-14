@@ -7,8 +7,7 @@
  *       Gitleaks + Trivy (Loop guard + image scan) can't be switched off.
  *
  *   POST /api/everesto/apps/:repo/delete  { confirm: "<repo>" }                    owners only
- *     → SonarQube project, gitops folder <project>-gitops-cd/<app>/ (ArgoCD prunes the pods),
- *       its deploy key, catalog entry, and finally the GitHub repo (Actions + secrets go with it).
+ *     → SonarQube project, CD repo <repo>-gitops, catalog entry, and finally the GitHub repo (Actions + secrets go with it).
  *
  * Who: the signed-in user must own the app's project (group <project>-owners, + <project>-maintainers
  * for tool changes) or be in platform-team. The repo's own catalog-info.yaml (read from GitHub, not
@@ -22,14 +21,14 @@ const PLATFORM = 'group:default/platform-team';
 
 type File = { path: string; content: string | null }; // null = delete
 
-async function readFile(token: string, repo: string, path: string) {
+export async function readFile(token: string, repo: string, path: string) {
   const r = await gh(token, 'GET', `/repos/${OWNER}/${repo}/contents/${path}?ref=main`);
   return r.ok ? Buffer.from(r.json.content, 'base64').toString('utf8') : undefined;
 }
 
 /** One commit with several file changes (null content = delete). */
-async function commit(token: string, repo: string, message: string, files: File[]) {
-  const ref = await gh(token, 'GET', `/repos/${OWNER}/${repo}/git/ref/heads/main`);
+export async function commit(token: string, repo: string, message: string, files: File[], branch = 'main') {
+  const ref = await gh(token, 'GET', `/repos/${OWNER}/${repo}/git/ref/heads/${branch}`);
   const head = ref.json.object.sha;
   const base = (await gh(token, 'GET', `/repos/${OWNER}/${repo}/git/commits/${head}`)).json.tree.sha;
   const tree = await gh(token, 'POST', `/repos/${OWNER}/${repo}/git/trees`, {
@@ -40,8 +39,8 @@ async function commit(token: string, repo: string, message: string, files: File[
   });
   if (!tree.ok) throw new Error(`GitHub: cannot build commit (${tree.status})`);
   const c = await gh(token, 'POST', `/repos/${OWNER}/${repo}/git/commits`, { message, tree: tree.json.sha, parents: [head] });
-  const upd = await gh(token, 'PATCH', `/repos/${OWNER}/${repo}/git/refs/heads/main`, { sha: c.json.sha });
-  if (!upd.ok) throw new Error(`GitHub: cannot push to main (${upd.status})`);
+  const upd = await gh(token, 'PATCH', `/repos/${OWNER}/${repo}/git/refs/heads/${branch}`, { sha: c.json.sha });
+  if (!upd.ok) throw new Error(`GitHub: cannot push to ${branch} (${upd.status})`);
   return String(c.json.sha).slice(0, 7);
 }
 
@@ -171,7 +170,7 @@ export async function deleteApp(
   unregister: (repo: string) => Promise<void>,
 ) {
   const token = await githubToken(config, OWNER);
-  const { project, sonarKey, app } = await appInfo(token, repo);
+  const { project, sonarKey } = await appInfo(token, repo);
   if (!allowed(refs, project, ['owners'])) {
     throw Object.assign(new Error(`only owners of ${project} can delete its applications`), { status: 403 });
   }
@@ -185,19 +184,14 @@ export async function deleteApp(
     );
   }
 
-  const gitops = `${project}-gitops-cd`;
-  const tree = await gh(token, 'GET', `/repos/${OWNER}/${gitops}/git/trees/main?recursive=1`);
-  const appFiles = tree.ok ? (tree.json.tree as any[]).filter(t => t.type === 'blob' && t.path.startsWith(`${app}/`)) : [];
-  if (appFiles.length) {
-    await commit(token, gitops, `${app}: removed (application ${repo} deleted in Backstage)`, appFiles.map(f => ({ path: f.path, content: null })));
-    done.push(`gitops folder ${gitops}/${app}/ (ArgoCD removes the pods)`);
-    const keys = await gh(token, 'GET', `/repos/${OWNER}/${gitops}/keys`);
-    for (const k of (keys.json ?? []) as any[]) {
-      if (k.title === `CI of ${repo} (tag bump)`) {
-        await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}/keys/${k.id}`);
-        done.push(`deploy key on ${gitops}`);
-      }
-    }
+  // CD: repo <repo>-gitops (ArgoCD apps <repo>-dev / -prod remove their pods via finalizer)
+  const gitops = `${repo}-gitops`;
+  const hasCd = (await gh(token, 'GET', `/repos/${OWNER}/${gitops}`)).ok;
+  if (hasCd) {
+    const d = await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}`);
+    if (d.ok) done.push(`GitHub repo ${OWNER}/${gitops} (CD)`);
+    else warn.push(`could not delete ${gitops} (${d.status})`);
+    warn.push(`remove the running app (Backstage has no cluster access): sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found`);
   }
 
   await unregister(repo).then(() => done.push('catalog entry'), e => warn.push(`catalog: ${e}`));

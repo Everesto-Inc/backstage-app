@@ -112,3 +112,12 @@ catalog:
       target: ./examples/template/template.yaml
       rules:
         - allow: [Template]
+
+# Infisical — "Create deployment" creates per project: Infisical project, folders, ESO identity.
+# Backstage logs in as machine identity "backstage-platform" (org: create projects + identities).
+# Until these env vars exist, the Infisical part is skipped (deployment still works).
+infisical:
+  url: https://infisical.everesto.live
+  clientId: ${INFISICAL_CLIENT_ID}
+  clientSecret: ${INFISICAL_CLIENT_SECRET}
+  organizationId: ${INFISICAL_ORG_ID}

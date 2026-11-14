@@ -9,22 +9,20 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
-  InputAdornment,
   TextField,
   Typography,
   makeStyles,
   useTheme,
 } from '@material-ui/core';
 import FolderIcon from '@material-ui/icons/Folder';
-import BlockIcon from '@material-ui/icons/Block';
 import { LOGOS } from '../tools/logos';
 import { CI_TOOLS } from '../tools/tools';
 import { ToolLogo } from '../tools/ToolLogo';
 
 /**
- * "Create pipeline" wizard: pick name, stack (CI), deployment (CD) and tools, then
+ * "Create pipeline" wizard: pick name, stack and tools (CI only — CD is “Create deployment”), then
  * "Continue" opens template:default/create-pipeline pre-filled (review → Create).
- * Supported today: Python, Java · ArgoCD / no deployment. Others are marked "coming soon".
+ * Supported today: Python, Java. Others are marked "coming soon".
  */
 
 type Stack = { id: string; name: string; hint: string; logo?: string; build: string; soon?: boolean };
@@ -94,11 +92,10 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [stack, setStack] = useState('python');
-  const [cd, setCd] = useState('argocd');
   const [tools, setTools] = useState<string[]>(DEFAULT_ON);
   const repoOnly = stack === 'repo';
   const s = STACKS.find(x => x.id === stack)!;
-  const app = `${project}-${name || `${stack}-backend`}`;
+  const app = name || `${stack}-backend`; // repo = name, unique in the org (no project prefix)
   const valid = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name || 'x') && app.length <= 63;
   const ciTools = CI_TOOLS.filter(t => t.id !== 'code' && t.id !== 'ci');
 
@@ -112,32 +109,21 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
           onChange={e => setName(e.target.value.toLowerCase())}
           error={!valid}
           helperText={valid ? `Repository: Everesto-Inc/${app}` : 'lowercase a-z 0-9 -, max 63 characters in total'}
-          InputProps={{ startAdornment: <InputAdornment position="start">{project}-</InputAdornment> }}
         />
 
         <div className={classes.step}>2 · Application (CI)</div>
         <div className={classes.grid}>
           {STACKS.map(x => (
-            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); if (x.id === 'repo') setCd('none'); }}>
+            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); }}>
               <Mark slug={x.logo} fallback={<FolderIcon style={{ fontSize: 18 }} />} />
               <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.soon ? 'coming soon' : x.hint}</div></span>
             </button>
           ))}
         </div>
 
-        <div className={classes.step}>3 · Deployment (CD)</div>
-        <div className={classes.grid}>
-          {CD_OPTIONS.map(x => (
-            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${cd === x.id ? classes.selected : ''}`} onClick={() => setCd(x.id)}>
-              <Mark slug={x.logo} fallback={<BlockIcon style={{ fontSize: 18 }} />} />
-              <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.soon ? 'coming soon' : x.hint.replace('<project>', project)}</div></span>
-            </button>
-          ))}
-        </div>
-
         {!repoOnly && (
           <>
-            <div className={classes.step}>4 · Pipeline tools</div>
+            <div className={classes.step}>3 · Pipeline tools</div>
             <Box display="flex" flexWrap="wrap" style={{ gap: '4px 24px' }}>
               {ciTools.map(t => (
                 <FormControlLabel
@@ -154,9 +140,7 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
         <div className={classes.step}>What will be created (preview)</div>
         <Box component="ol" pl={3} m={0} style={{ lineHeight: 1.9, fontSize: 14 }}>
           <li>repo <b>Everesto-Inc/{app}</b> from the <b>{s.name}</b> skeleton{repoOnly ? ' (README only)' : `, CI workflow: ${s.build} → ${tools.filter(x => ciTools.some(t => t.id === x)).map(x => CI_TOOLS.find(t => t.id === x)!.name).join(' → ')}`}</li>
-          {cd === 'argocd' && <li>folder <b>{name || `${stack}-backend`}/</b> in <b>{project}-gitops-cd</b> (Deployment, Service, ExternalSecret) → ArgoCD syncs to namespace <b>{project}</b></li>}
-          {cd === 'ansible' && <li>AWX job template <b>{app}-deploy</b> + playbook in the repo (<code>deploy/</code>) → deploys to VMs</li>}
-          <li>registered here: a CI pipeline{cd !== 'none' ? ' and a CD pipeline' : ''}, owned by <b>{project}</b></li>
+          <li>registered here as a CI pipeline of <b>{project}</b> — deployment (CD) is added later by a maintainer: “Create deployment”</li>
           {tools.includes('quality') && !repoOnly && <li>SonarQube project <b>{app}</b> + its token stored in Infisical</li>}
         </Box>
       </DialogContent>
@@ -169,7 +153,7 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
           variant="contained"
           color="primary"
           disableElevation
-          disabled={!name || !valid || s.soon || CD_OPTIONS.find(x => x.id === cd)!.soon}
+          disabled={!name || !valid || s.soon}
           onClick={() => {
             const formData = {
               project: `system:default/${project}`,
@@ -177,7 +161,6 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
               stack,
               description: '',
               visibility: 'public',
-              cd,
               // true/false switches of the template (Gitleaks + Trivy always run in the Loop guard)
               sonarqube: tools.includes('quality'),
               semgrep: tools.includes('semgrep'),

@@ -82,8 +82,8 @@ Backstage names: lowercase, `a-z0-9-`, max 63 chars. Templates validate with a r
 |---|---|---|
 | Entity | rare animal | `blackbuck`, `okapi`, `axolotl`, `saola`, `vaquita`, `kakapo`, `pangolin`, `aye-aye`, `takin`, `markhor`, `dhole`, `snow-leopard`, `red-panda`, `shoebill` |
 | Project / Space | flower | `orchid`, `lotus`, `iris`, `dahlia`, `peony`, `magnolia`, `camellia`, `jasmine`, `lavender`, `tulip`, `azalea`, `protea` |
-| Application (CI) | `<flower>-<tech>-<role>` | `orchid-java-backend`, `orchid-react-frontend` |
-| Space CD repo | `<flower>-gitops-cd` (one per space, folder per app) | `orchid-gitops-cd/java-backend/` |
+| Application (CI) | `<tech>-<role>` — **no project prefix**, unique in the org | `java-backend`, `react-frontend` |
+| Application CD repo | `<app>-gitops` (one per app: `apps/dev`, `apps/prod`, `argocd/`) | `java-backend-gitops` |
 
 Project (flower) names must be unique across the whole platform — they prefix repo names in GitHub.
 
@@ -259,3 +259,14 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - Project names: flower suggestions (taken ones hidden) **or** free input, validated for uniqueness.
 - Super admin = `platform-admins` group, not a space.
 - Users invited by email; login with GitHub.
+
+## 12. CI and CD are separate (decided 2026-11-14)
+
+- **Create pipeline** (developers+): repo `Everesto-Inc/<name>` (no project prefix), Loop CI, image to ghcr.io. No CD.
+- **Create deployment** (maintainers/owners, backend-enforced): pick a CI app of the project → public repo `<app>-gitops`
+  (`apps/dev`, `apps/prod`, `argocd/`), Deploy stage added to the app's CI (→ `apps/dev`), deploy key, catalog Resource
+  (`dependsOn` the CI component), optional Infisical project/folder/identity `eso-<project>`.
+- Backstage has **no cluster access**: it returns kubectl commands (`argocd/argocd.yaml`: AppProject `<project>` +
+  Applications `<app>-dev` auto-sync / `<app>-prod` manual sync; Infisical login secret shown once).
+- **Promote to prod** = PR in `<app>-gitops` (prod tag := dev tag); after merge, Sync `<app>-prod` in ArgoCD.
+- Namespaces `<project>-dev`, `<project>-prod`. Delete application (owners) also deletes `<app>-gitops`.
