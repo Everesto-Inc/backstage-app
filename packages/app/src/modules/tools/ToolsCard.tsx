@@ -108,14 +108,6 @@ const CdToolsCard = () => {
   );
 };
 
-/** "Tools" card on an application's Overview. */
-export const ToolsCard = () => {
-  const { entity } = useEntity();
-  const demo = useDemoData();
-  if (!demo && entity.kind === 'Resource') return <CdToolsCard />;
-  return <CiToolsCard />;
-};
-
 const CiToolsCard = () => {
   const classes = useStyles();
   const { entity } = useEntity();
@@ -222,4 +214,12 @@ const CiToolsCard = () => {
       </Dialog>
     </InfoCard>
   );
+};
+
+/** "Tools" card on an application's Overview. */
+export const ToolsCard = () => {
+  const { entity } = useEntity();
+  const demo = useDemoData();
+  if (!demo && entity.kind === 'Resource') return <CdToolsCard />;
+  return <CiToolsCard />;
 };
