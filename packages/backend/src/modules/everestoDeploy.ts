@@ -287,7 +287,7 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean) =
   ];
   c.push({
     title: `6. Prod — ONLY after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}: secret store + app ${repo}-prod, then Sync ${repo}-prod`,
-    cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml`,
+    cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml\nsudo kubectl -n argocd patch application ${repo}-prod --type merge -p '{"operation":{"sync":{}}}'\nsudo kubectl -n ${ns(project, 'prod')} get pods,externalsecret,secret`,
   });
   c.push({ title: 'Check', cmd: `sudo kubectl -n argocd get applications | grep ${repo}\nsudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` });
   return c;
@@ -440,10 +440,25 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url)}---\n${application(repo, project, 'prod')}` },
     );
     files.push({ path: 'docs/index.md', content: runbook(repo, project, true) });
-    commands.push({
-      title: `After merging the PR: secret store + ArgoCD app ${repo}-prod. Set the prod secrets in Infisical (${repo}-gitops / prod), then Sync`,
-      cmd: `sudo kubectl apply -f https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd/argocd-prod.yaml`,
-    });
+  }
+
+  const raw = `https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd`;
+  const sync = `sudo kubectl -n argocd patch application ${repo}-prod --type merge -p '{"operation":{"sync":{}}}'`;
+  const check = `sudo kubectl -n ${ns(project, 'prod')} get pods,externalsecret,secret`;
+  if (!prod) {
+    commands.push(
+      { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
+      { title: `2. Prod secret store + ArgoCD app ${repo}-prod (first promote only)`, cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml` },
+      { title: `3. Set the real prod secrets: Backstage → ${gitops} → Secrets → prod (they are CHANGE_ME)`, cmd: '# Backstage → Secrets tab → prod' },
+      { title: `4. Sync — creates namespace ${ns(project, 'prod')}, Deployment, Service, ExternalSecret (or ArgoCD UI → Sync)`, cmd: sync },
+      { title: '5. Check (after ~30 s)', cmd: check },
+    );
+  } else {
+    commands.push(
+      { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
+      { title: `2. Sync ${repo}-prod (or ArgoCD UI → Sync)`, cmd: sync },
+      { title: '3. Check (after ~30 s)', cmd: check },
+    );
   }
 
   const branch = `promote-${devTag}`;
@@ -453,7 +468,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
   await commit(token, gitops, `prod: image → ${devTag} (promoted by ${who})`, files, branch);
   const pr = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/pulls`, {
     title: `Promote ${repo} to prod: ${tagOf(prod) ?? '(new)'} → ${devTag}`, head: branch, base: 'main',
-    body: `Requested in Backstage by **${who}**.\n\nAfter merge: ArgoCD → \`${repo}-prod\` → **Sync** (manual).${prod ? '' : `\n\nFirst promote — after merge run once:\n\`\`\`\n${commands[0].cmd}\n\`\`\``}`,
+    body: `Requested in Backstage by **${who}**.\n\n${commands.map(c => `**${c.title}**\n\`\`\`\n${c.cmd}\n\`\`\``).join('\n\n')}`,
   });
   if (!pr.ok && pr.status !== 422) throw new Error(`GitHub: cannot open PR (${pr.status})`);
   return { url: pr.json?.html_url ?? `https://github.com/${OWNER}/${gitops}/pulls`, from: tagOf(prod), to: devTag, commands };
