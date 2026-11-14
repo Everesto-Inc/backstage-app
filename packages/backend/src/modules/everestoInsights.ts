@@ -274,6 +274,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             port: Number(b.port ?? 8080),
             memoryMi: Number(b.memoryMi ?? 192),
             replicas: Number(b.replicas ?? 1),
+            healthPath: str(b.healthPath) || undefined,
           };
           try {
             const { refs, who } = await caller(req);

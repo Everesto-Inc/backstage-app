@@ -28,6 +28,7 @@ export type DeploymentInput = {
   port: number;
   memoryMi: number;
   replicas: number;
+  healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
 };
 
 // ---------- manifests ----------
@@ -40,6 +41,11 @@ images:
   - name: ${image}
     newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
 `;
+
+const probes = (d: DeploymentInput) => (d.healthPath
+  ? `          readinessProbe: { httpGet: { path: ${d.healthPath}, port: ${d.port} }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: ${d.healthPath}, port: ${d.port} }, initialDelaySeconds: 20, periodSeconds: 20, failureThreshold: 3 }`
+  : `          readinessProbe: { tcpSocket: { port: ${d.port} }, periodSeconds: 10 }`);
 
 const deployment = (repo: string, image: string, project: string, env: Env, d: DeploymentInput) => `apiVersion: apps/v1
 kind: Deployment
@@ -66,7 +72,7 @@ ${d.config.map(c => `            - { name: ${c.name}, value: ${JSON.stringify(c.
           resources:
             requests: { cpu: 25m, memory: ${Math.max(32, Math.round(d.memoryMi / 2))}Mi }
             limits: { memory: ${d.memoryMi}Mi }
-          readinessProbe: { tcpSocket: { port: ${d.port} }, periodSeconds: 10 }
+${probes(d)}
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
 `;
 
@@ -300,6 +306,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   if (!(d.port > 0 && d.port < 65536) || !(d.memoryMi >= 64 && d.memoryMi <= 1024) || !(d.replicas >= 1 && d.replicas <= 3)) {
     throw err(400, 'port 1-65535, memory 64-1024 Mi, replicas 1-3');
   }
+  if (d.healthPath && !/^\/[A-Za-z0-9/_.-]{0,100}$/.test(d.healthPath)) throw err(400, 'health path must look like /health');
   const gitops = `${repo}-gitops`;
   if ((await gh(token, 'GET', `/repos/${OWNER}/${gitops}`)).status !== 404) throw err(409, `${gitops} already exists — delete the deployment first`);
   const [last] = await builds(config, repo);
@@ -326,7 +333,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
     { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project)}---\n${application(repo, project, 'dev')}` },
     { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url)}` },
-    { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
+    { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
     { path: 'docs/index.md', content: runbook(repo, project, false) },
     { path: 'mkdocs.yml', content: mkdocs(repo) },
     { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },

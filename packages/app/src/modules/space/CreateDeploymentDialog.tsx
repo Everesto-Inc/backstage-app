@@ -66,6 +66,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const [port, setPort] = useState('8080');
   const [memory, setMemory] = useState('192');
   const [replicas, setReplicas] = useState('1');
+  const [health, setHealth] = useState('/health');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | undefined>();
   const argocd = TOOLS.find(t => t.id === 'cd')!;
@@ -81,7 +82,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
-          port: Number(port), memoryMi: Number(memory), replicas: Number(replicas),
+          port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -133,6 +134,8 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Rows title="Config (not secret)" rows={config} setRows={setConfig} hint="Plain environment variables, written into the deployment (visible in git), e.g. LOG_LEVEL=info" />
 
             <Grid container spacing={2} style={{ marginTop: 8 }}>
+              <Grid item xs={12}><TextField fullWidth size="small" variant="outlined" label="Health check path" value={health} onChange={e => setHealth(e.target.value)}
+                helperText="HTTP GET → readiness + liveness probes (FastAPI skeleton: /health). Empty = only check that the port is open." /></Grid>
               <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Container port" value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ''))} /></Grid>
               <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Memory limit (Mi)" value={memory} onChange={e => setMemory(e.target.value.replace(/\D/g, ''))} helperText="64–1024 · nodes are small" /></Grid>
               <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Replicas" value={replicas} onChange={e => setReplicas(e.target.value.replace(/\D/g, ''))} helperText="1–3" /></Grid>
