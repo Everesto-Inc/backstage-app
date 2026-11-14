@@ -75,4 +75,7 @@ backend.add(import('@backstage/plugin-signals-backend'));
 // mcp actions plugin
 backend.add(import('@backstage/plugin-mcp-actions-backend'));
 
+// SonarQube (sonar.everesto.live) — read via user token of backstage-bot (SONARQUBE_TOKEN)
+backend.add(import('@backstage-community/plugin-sonarqube-backend'));
+
 backend.start();

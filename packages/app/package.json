@@ -14,8 +14,10 @@
     "lint": "backstage-cli package lint"
   },
   "dependencies": {
+    "@backstage-community/plugin-sonarqube": "^1.4.0",
     "@backstage/catalog-model": "^1.10.2",
     "@backstage/cli": "^0.36.7",
+    "@backstage/core-compat-api": "^0.5.16",
     "@backstage/core-components": "^0.18.15",
     "@backstage/core-plugin-api": "^1.12.11",
     "@backstage/frontend-defaults": "^0.5.7",

@@ -86,6 +86,12 @@ integrations:
           webhookSecret: ${GITHUB_APP_WEBHOOK_SECRET}
           allowedInstallationOwners: [Everesto-Inc]
 
+# SonarQube Community on the tools node (public: sonar.everesto.live).
+# Token = SonarQube user backstage-bot (Infisical SONARQUBE_TOKEN → ESO).
+sonarqube:
+  baseUrl: https://sonar.everesto.live
+  apiKey: ${SONARQUBE_TOKEN}
+
 catalog:
   locations:
     # everesto.live catalog — private repo, read through the GitHub App above.
