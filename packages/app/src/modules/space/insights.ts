@@ -1,6 +1,6 @@
 import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { Entity } from '@backstage/catalog-model';
-import useAsync from 'react-use/esm/useAsync';
+import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 
 /** Real pipeline data from the backend (packages/backend/src/modules/everestoInsights.ts). */
 export type StepResult = 'success' | 'failure' | 'skipped' | 'cancelled' | null | undefined;
@@ -59,7 +59,7 @@ export const insightsTarget = (e: Entity) => {
 export const useInsights = (e: Entity | undefined, enabled = true) => {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
-  return useAsync(async (): Promise<Insights | undefined> => {
+  return useAsyncRetry(async (): Promise<Insights | undefined> => {
     if (!e || !enabled) return undefined;
     const { repo, project, app } = insightsTarget(e);
     // SonarQube switched off (annotation absent) → backend skips it, no stale measures

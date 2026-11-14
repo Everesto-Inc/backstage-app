@@ -262,11 +262,18 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 
 ## 12. CI and CD are separate (decided 2026-11-14)
 
-- **Create pipeline** (developers+): repo `Everesto-Inc/<name>` (no project prefix), Loop CI, image to ghcr.io. No CD.
-- **Create deployment** (maintainers/owners, backend-enforced): pick a CI app of the project → public repo `<app>-gitops`
-  (`apps/dev`, `apps/prod`, `argocd/`), Deploy stage added to the app's CI (→ `apps/dev`), deploy key, catalog Resource
-  (`dependsOn` the CI component), optional Infisical project/folder/identity `eso-<project>`.
-- Backstage has **no cluster access**: it returns kubectl commands (`argocd/argocd.yaml`: AppProject `<project>` +
-  Applications `<app>-dev` auto-sync / `<app>-prod` manual sync; Infisical login secret shown once).
-- **Promote to prod** = PR in `<app>-gitops` (prod tag := dev tag); after merge, Sync `<app>-prod` in ArgoCD.
-- Namespaces `<project>-dev`, `<project>-prod`. Delete application (owners) also deletes `<app>-gitops`.
+- **Create pipeline** (developers+): repo `Everesto-Inc/<name>` (no project prefix), Loop CI. PRs/branches: tests + scans
+  (+ image built and scanned, not pushed). main: same + image pushed to ghcr.io (every merge, or "Run build" button).
+  **CI never deploys.**
+- **Create deployment** (maintainers/owners, backend-enforced) — Infisical is required and runs FIRST:
+  1. Infisical project `<project>` → env dev → folder `/<app>` with the app's secrets (values optional, else CHANGE_ME),
+     identity `eso-<project>` (viewer) on first use — its login shown once as a kubectl command.
+  2. public repo `<app>-gitops`: `apps/dev` (newest image), `argocd/argocd.yaml`, `argocd/secret-stores.yaml`.
+  3. catalog Resource `<app>-gitops` (dependsOn the CI component).
+- Default env **dev** (ns `<project>-dev`). **Every ArgoCD sync is manual.** "Deploy to dev" = pick one of the last
+  5 builds → tag committed to `apps/dev`. "Promote to prod" = PR (prod tag := dev tag); the first promote also creates
+  `apps/prod`, ns `<project>-prod`, Infisical prod folder and `argocd/argocd-prod.yaml`.
+- **Delete deployment** (owners): deletes `<app>-gitops` + catalog Resource; Infisical secrets are kept.
+- Backstage has **no cluster access** — it returns kubectl commands. Tenant pods need node label
+  `everesto.live/pool=tenants`. CD tool: ArgoCD only (no Ansible). Grafana: placeholder.
+- Backstage ↔ Infisical: identity `backstage-platform` (org Admin), keys INFISICAL_CLIENT_ID / _SECRET / _ORG_ID.

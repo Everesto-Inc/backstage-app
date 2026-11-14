@@ -14,8 +14,8 @@ import { Config } from '@backstage/config';
 import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
-import { ToolChange, deleteApp, readFile, setTools } from './everestoManage';
-import { createDeployment, promote } from './everestoDeploy';
+import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
+import { builds, createDeployment, deleteDeployment, deploy, promote } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 
 const OWNER = 'Everesto-Inc';
@@ -241,20 +241,78 @@ export const everestoInsightsPlugin = createBackendPlugin({
           } catch (e) { fail(res, e); }
         });
 
+        const resourceUnregister = (credentials: any) => async (name: string) => {
+          const r = await catalog.getEntityByRef(`resource:default/${name}`, { credentials });
+          if (r?.metadata.uid) await catalog.removeEntityByUid(r.metadata.uid, { credentials });
+        };
+        const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+
         router.post('/apps/:repo/deployment', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          const b = req.body ?? {};
+          const input = {
+            secrets: (Array.isArray(b.secrets) ? b.secrets : []).map((x: any) => ({ name: str(x?.name), value: str(x?.value) || undefined })).filter((x: any) => x.name),
+            config: (Array.isArray(b.config) ? b.config : []).map((x: any) => ({ name: str(x?.name), value: str(x?.value) })).filter((x: any) => x.name),
+            port: Number(b.port ?? 8080),
+            memoryMi: Number(b.memoryMi ?? 192),
+            replicas: Number(b.replicas ?? 1),
+          };
+          try {
+            const { refs, who } = await caller(req);
+            const out = await createDeployment(config, repo, input, refs, who);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`deployment for ${repo} created by ${who}: ${out.done.join(', ')}`); // never log out.commands (secret)
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/deployment/delete', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          if (req.body?.confirm !== `${repo}-gitops`) { res.status(400).json({ error: `type ${repo}-gitops to confirm` }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await deleteDeployment(config, repo, refs, who, resourceUnregister(await auth.getOwnServiceCredentials()));
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`deployment of ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.get('/apps/:repo/builds', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try { res.json({ builds: await builds(config, repo) }); } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/deploy', async (req, res) => {
+          const { repo } = req.params;
+          const tag = str(req.body?.tag);
+          if (!validRepo(repo) || !/^sha-[0-9a-f]{7}$/.test(tag)) { res.status(400).json({ error: 'invalid repo or tag' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await deploy(config, repo, tag, refs, who);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`deploy ${repo} dev ${out.from} → ${out.to} by ${who}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        // "Run build": workflow_dispatch of ci.yml on main (GitHub App needs Actions: write)
+        router.post('/apps/:repo/build', async (req, res) => {
           const { repo } = req.params;
           if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
           try {
             const { refs, who } = await caller(req);
-            const credentials = await auth.getOwnServiceCredentials();
-            const projectGitopsRepos = async (project: string) => (await catalog.getEntities(
-              { filter: { kind: 'Resource', 'spec.type': 'gitops', 'spec.system': project }, fields: ['metadata.name'] },
-              { credentials },
-            )).items.map(e => e.metadata.name);
-            const out = await createDeployment(config, repo, { infisical: req.body?.infisical === true }, refs, who, projectGitopsRepos);
-            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
-            logger.info(`deployment for ${repo} created by ${who}: ${out.done.join(', ')}`); // never log out.commands (secret)
-            res.json(out);
+            const token = await githubToken(config, OWNER);
+            const { project } = await appInfo(token, repo);
+            if (!allowed(refs, project, ['owners', 'maintainers', 'developers'])) { res.status(403).json({ error: `only members of ${project} can run builds` }); return; }
+            const r = await gh(token, 'POST', `/repos/${OWNER}/${repo}/actions/workflows/ci.yml/dispatches`, { ref: 'main' });
+            if (r.status === 403) { res.status(403).json({ error: 'the GitHub App needs the permission "Actions: Read and write" to start builds' }); return; }
+            if (!r.ok) { res.status(502).json({ error: `GitHub: cannot start build (${r.status})` }); return; }
+            logger.info(`build of ${repo} started by ${who}`);
+            res.json({ started: true, url: `https://github.com/${OWNER}/${repo}/actions` });
           } catch (e) { fail(res, e); }
         });
 
@@ -264,6 +322,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
           try {
             const { refs, who } = await caller(req);
             const out = await promote(config, repo, refs, who);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`promote ${repo} ${out.from} → ${out.to} by ${who}: ${out.url}`);
             res.json(out);
           } catch (e) { fail(res, e); }

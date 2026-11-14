@@ -1,8 +1,8 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode } from 'react';
 import { Entity } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
-import { useIsProjectMaintainer } from './data';
-import { Box, Button, Grid, Link, Tooltip, Typography, makeStyles } from '@material-ui/core';
+import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { CdActions, RunBuild } from './CdActions';
+import { Box, Grid, Link, Tooltip, Typography, makeStyles } from '@material-ui/core';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
 import RemoveCircleOutline from '@material-ui/icons/RemoveCircleOutline';
@@ -97,6 +97,7 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
         <Box width="100%">
           {!last ? <Muted>no runs yet</Muted> : last.conclusion === 'success' ? <Good>Success</Good> : last.status !== 'completed' ? <Muted>running…</Muted> : <Bad>{`Failed${d.failedStep ? ` · ${d.failedStep}` : ''}`}</Bad>}
           {d.runs && d.runs.length > 0 && <RunBars runs={d.runs} />}
+          <Box mt={0.5}><RunBuild repo={insightsTarget(entity).repo} project={String(entity.spec?.system ?? '')} /></Box>
         </Box>
       </Metric>
       <Metric label={`Commits · 14 days · ${commits.reduce((a, b) => a + b.count, 0)}`}>
@@ -137,45 +138,25 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
 /** CD card row — real data (latest commit in the gitops folder). */
 export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   const c = useStyles();
-  const { value: d, loading } = useInsights(entity);
+  const { value: d, loading, retry } = useInsights(entity);
   const project = String(entity.spec?.system ?? '');
-  const canPromote = useIsProjectMaintainer(project);
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
-  const alertApi = useApi(alertApiRef);
-  const [busy, setBusy] = useState(false);
-  if (loading) return <Box px={3} pb={2}><Muted>Loading…</Muted></Box>;
+  if (loading && !d) return <Box px={3} pb={2}><Muted>Loading…</Muted></Box>;
   const repo = insightsTarget(entity).repo;
   const dev = d?.envs?.dev;
   const prod = d?.envs?.prod;
-  const promote = async () => {
-    setBusy(true);
-    try {
-      const base = await discovery.getBaseUrl('everesto');
-      const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}/promote`, { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      alertApi.post({ message: `Promote PR opened (${json.from} → ${json.to}) — merge it, then Sync ${repo}-prod in ArgoCD`, severity: 'success' });
-      window.open(json.url, '_blank', 'noopener');
-    } catch (e: any) {
-      alertApi.post({ message: `Promote failed: ${e.message}`, severity: 'error' });
-    } finally { setBusy(false); }
-  };
   const env = (x?: { tag?: string; at?: string; url?: string }) =>
-    x?.tag ? <span><code>{x.tag}</code> · {x.url ? <Link href={x.url} target="_blank" rel="noopener">{ago(x.at)}</Link> : ago(x.at)}</span> : <Muted>not deployed yet</Muted>;
+    x?.tag ? <span><code>{x.tag}</code> · {x.url ? <Link href={x.url} target="_blank" rel="noopener">{ago(x.at)}</Link> : ago(x.at)}</span> : <Muted>not created — first Promote creates it</Muted>;
   return (
-    <div className={c.metrics}>
-      <Metric label={`dev · ns ${project}-dev · auto-sync`}>{env(dev)}</Metric>
-      <Metric label={`prod · ns ${project}-prod · manual sync`}>
-        <Box>
-          {env(prod)}
-          {canPromote && dev?.tag && dev.tag !== prod?.tag && (
-            <Box mt={0.5}><Button size="small" variant="outlined" color="primary" disabled={busy} onClick={promote}>Promote {dev.tag} to prod</Button></Box>
-          )}
-        </Box>
-      </Metric>
-      <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
-    </div>
+    <>
+      <div className={c.metrics}>
+        <Metric label={`dev · ns ${project}-dev · manual sync`}>{env(dev)}</Metric>
+        <Metric label={`prod · ns ${project}-prod · manual sync`}>{env(prod)}</Metric>
+        <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
+      </div>
+      <Box px={3} py={1.5}>
+        <CdActions repo={repo} project={project} devTag={dev?.tag} prodTag={prod?.tag} onChange={retry} />
+      </Box>
+    </>
   );
 };
 
