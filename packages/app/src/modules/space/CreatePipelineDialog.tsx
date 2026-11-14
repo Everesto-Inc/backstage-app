@@ -77,6 +77,9 @@ const Mark = ({ slug, size = 32, fallback }: { slug?: string; size?: number; fal
 // Free pipeline tools ticked by default; enterprise / project tools opt-in
 const DEFAULT_ON = ['code', 'ci', 'secrets-scan', 'semgrep', 'trivy', 'quality', 'registry', 'dependabot'];
 
+// Always on (Loop guard + image scan + push) — shown ticked and locked
+const MANDATORY = ['secrets-scan', 'trivy', 'registry'];
+
 // Wizard tool id → template tool id (template:default/create-pipeline). Others: coming soon.
 const TEMPLATE_TOOL: Record<string, string> = {
   'secrets-scan': 'gitleaks',
@@ -139,9 +142,9 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
               {ciTools.map(t => (
                 <FormControlLabel
                   key={t.id}
-                  disabled={!(t.id in TEMPLATE_TOOL) && t.id !== 'registry'}
-                  control={<Checkbox color="primary" size="small" checked={tools.includes(t.id) && (t.id in TEMPLATE_TOOL || t.id === 'registry')} onChange={e => setTools(e.target.checked ? [...tools, t.id] : tools.filter(x => x !== t.id))} />}
-                  label={<Box display="flex" alignItems="center" style={{ gap: 8 }}><ToolLogo tool={t} size={24} />{t.name}{t.licence === 'enterprise' && <Typography variant="caption" color="textSecondary">enterprise · needs connection</Typography>}</Box>}
+                  disabled={MANDATORY.includes(t.id) || !(t.id in TEMPLATE_TOOL)}
+                  control={<Checkbox color="primary" size="small" checked={MANDATORY.includes(t.id) || (tools.includes(t.id) && t.id in TEMPLATE_TOOL)} onChange={e => setTools(e.target.checked ? [...tools, t.id] : tools.filter(x => x !== t.id))} />}
+                  label={<Box display="flex" alignItems="center" style={{ gap: 8 }}><ToolLogo tool={t} size={24} />{t.name}{MANDATORY.includes(t.id) && <Typography variant="caption" color="textSecondary">always on</Typography>}{t.licence === 'enterprise' && <Typography variant="caption" color="textSecondary">enterprise · needs connection</Typography>}</Box>}
                 />
               ))}
             </Box>
@@ -175,7 +178,10 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
               description: '',
               visibility: 'public',
               cd,
-              tools: tools.filter(t => t in TEMPLATE_TOOL).map(t => TEMPLATE_TOOL[t]),
+              // true/false switches of the template (Gitleaks + Trivy always run in the Loop guard)
+              sonarqube: tools.includes('quality'),
+              semgrep: tools.includes('semgrep'),
+              dependabot: tools.includes('dependabot'),
             };
             navigate(`/create/templates/default/create-pipeline?formData=${encodeURIComponent(JSON.stringify(formData))}`);
           }}
