@@ -53,11 +53,19 @@ backend:
         ca:
           $file: /etc/backstage/postgres/ca.crt
     # Each plugin gets its own pool. The shared Postgres allows only 30 connections
-    # (Infisical uses it too) → max 2 per plugin (~13 plugins ≈ 26 at peak).
+    # (Infisical uses it too). 2 per plugin × ~13 plugins hit the limit at startup
+    # ("remaining connection slots are reserved") → 1 per plugin, 2 for catalog +
+    # scaffolder (parallel queries) ≈ 15 at peak; idle connections closed after 10 s.
     knexConfig:
       pool:
         min: 0
-        max: 2
+        max: 1
+        idleTimeoutMillis: 10000
+    plugin:
+      catalog:
+        knexConfig: { pool: { min: 0, max: 2, idleTimeoutMillis: 10000 } }
+      scaffolder:
+        knexConfig: { pool: { min: 0, max: 2, idleTimeoutMillis: 10000 } }
 
 auth:
   environment: production
