@@ -116,7 +116,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
       </Box>
 
       <Box mt={2}>
-        <CmdBox title={`Apply now on the control plane (force ESO sync + restart ${repo} in ${project}-${env})`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
+        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${project}-${env}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
       </Box>
 
       {isMaintainer && (
