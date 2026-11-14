@@ -469,8 +469,10 @@ export async function promote(config: Config, repo: string, refs: string[], who:
 
   const branch = `promote-${devTag}`;
   const head = (await gh(token, 'GET', `/repos/${OWNER}/${gitops}/git/ref/heads/main`)).json.object.sha;
-  const br = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/git/refs`, { ref: `refs/heads/${branch}`, sha: head });
-  if (!br.ok && br.status !== 422) throw new Error(`GitHub: cannot create branch (${br.status})`);
+  // branch from CURRENT main — an old promote branch with the same name is reset (force), never reused stale
+  let br = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/git/refs`, { ref: `refs/heads/${branch}`, sha: head });
+  if (br.status === 422) br = await gh(token, 'PATCH', `/repos/${OWNER}/${gitops}/git/refs/heads/${branch}`, { sha: head, force: true });
+  if (!br.ok) throw new Error(`GitHub: cannot create branch ${branch} (${br.status})`);
   await commit(token, gitops, `prod: image → ${devTag} (promoted by ${who})`, files, branch);
   const pr = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/pulls`, {
     title: `Promote ${repo} to prod: ${tagOf(prod) ?? '(new)'} → ${devTag}`, head: branch, base: 'main',
