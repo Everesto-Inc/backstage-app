@@ -117,7 +117,7 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
             <Button color="primary" variant="contained" disableElevation disabled={busy || !tag}
               onClick={() => run(async () => {
                 const r = await call('POST', `/apps/${repo}/deploy`, { tag });
-                setOut({ title: 'Image written to apps/dev', lines: [`${r.from} → ${r.to}`, `ArgoCD → ${r.argocdApp} → Sync`] });
+                setOut({ title: 'Image written to apps/dev', lines: [`${r.from} → ${r.to}`], commands: r.commands });
               })}>Deploy</Button>
           )}
           {!out && dialog === 'promote' && (

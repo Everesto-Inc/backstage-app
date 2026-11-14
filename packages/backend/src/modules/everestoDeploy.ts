@@ -400,7 +400,13 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
   if (tagOf(dev) === tag) throw err(409, `dev already has ${tag} — click Sync in ArgoCD if it isn't running yet`);
   const sha = await commit(token, gitops, `dev: image → ${tag} (Backstage, by ${who})`,
     [{ path: 'apps/dev/kustomization.yaml', content: dev.replace(/(newTag:\s*)\S+/, `$1${tag}`) }]);
-  return { from: tagOf(dev), to: tag, commit: sha, argocdApp: `${repo}-dev` };
+  return {
+    from: tagOf(dev), to: tag, commit: sha, argocdApp: `${repo}-dev`,
+    commands: [
+      { title: `1. Sync ${repo}-dev (or ArgoCD UI → Sync)`, cmd: `sudo kubectl -n argocd patch application ${repo}-dev --type merge -p '{"operation":{"sync":{}}}'` },
+      { title: '2. Check (after ~30 s)', cmd: `sudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` },
+    ],
+  };
 }
 
 // ---------- promote ----------
