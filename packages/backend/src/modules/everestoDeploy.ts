@@ -231,6 +231,55 @@ export async function builds(config: Config, repo: string) {
     .map(r => ({ tag: `sha-${String(r.head_sha).slice(0, 7)}`, at: r.created_at as string, title: r.display_title as string, url: r.html_url as string }));
 }
 
+// ---------- runbook (TechDocs page of <repo>-gitops + "Setup commands" in Backstage) — NO secret values ----------
+
+export const setupCommands = (repo: string, project: string, hasProd: boolean) => {
+  const gitops = `${repo}-gitops`;
+  const raw = `https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd`;
+  const c: { title: string; cmd: string }[] = [
+    { title: '1. Tenant node label (once per cluster)', cmd: 'sudo kubectl label node dev-k3s-argocd everesto.live/pool=tenants --overwrite' },
+    {
+      title: `2. Infisical login for ESO (identity eso-${repo}) — the secret is shown only in Backstage: Edit deployment → "New ESO login"`,
+      cmd: `sudo kubectl -n external-secrets create secret generic infisical-${repo}-auth \\\n  --from-literal=clientId='<CLIENT_ID>' --from-literal=clientSecret='<CLIENT_SECRET>'`,
+    },
+    { title: '3. Secret store (dev)', cmd: `sudo kubectl apply -f ${raw}/secret-stores.yaml` },
+    { title: `4. ArgoCD project ${project} + app ${repo}-dev`, cmd: `sudo kubectl apply -f ${raw}/argocd.yaml` },
+    { title: `5. Deploy: ArgoCD → ${repo}-dev → Sync`, cmd: `# or: sudo kubectl -n argocd patch application ${repo}-dev --type merge -p '{"operation":{"sync":{}}}'` },
+  ];
+  if (hasProd) c.push({ title: `6. Prod (after the first promote PR is merged): secret store + app ${repo}-prod`, cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml` });
+  c.push({ title: 'Check', cmd: `sudo kubectl -n argocd get applications | grep ${repo}\nsudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` });
+  return c;
+};
+
+const runbook = (repo: string, project: string, hasProd: boolean) => `# ${repo}-gitops — runbook
+
+CD of [${repo}](https://github.com/${OWNER}/${repo}), DevOps space **${project}**. Managed by Backstage.
+
+| env | folder | namespace | ArgoCD app | how a new image arrives |
+|---|---|---|---|---|
+| dev | \`apps/dev\` | \`${ns(project, 'dev')}\` | \`${repo}-dev\` | Backstage → **Deploy to dev** (pick a build) → **Sync** |
+| prod | \`apps/prod\` | \`${ns(project, 'prod')}\` | \`${repo}-prod\` | Backstage → **Promote to prod** (PR) → merge → **Sync** |
+
+Secrets: Infisical project **${repo}-gitops** (env dev / prod) → ESO → Kubernetes Secret \`${repo}\`. Never in this repo.
+
+## Setup on the control plane (\`ssho control-plane\`)
+
+Backstage has no cluster access — an admin runs these once. Re-running them is safe.
+
+${setupCommands(repo, project, hasProd).map(c => `### ${c.title}\n\n\`\`\`bash\n${c.cmd.replace(/\\n/g, '\n')}\n\`\`\`\n`).join('\n')}
+## Flow
+
+\`\`\`mermaid
+flowchart LR
+  CI[${repo} CI: build on main] --> IMG[(ghcr.io image sha-…)]
+  IMG -->|Deploy to dev| DEV[apps/dev] -->|Sync| NSD[${ns(project, 'dev')}]
+  DEV -->|Promote PR| PROD[apps/prod] -->|Sync| NSP[${ns(project, 'prod')}]
+  INF[(Infisical ${repo}-gitops)] -->|ESO| NSD
+  INF -->|ESO| NSP
+\`\`\`
+`;
+const mkdocs = (repo: string) => `site_name: ${repo}-gitops\nnav: [{ Runbook: index.md }]\nplugins: [techdocs-core]\n`;
+
 // ---------- create ----------
 
 export async function createDeployment(config: Config, repo: string, d: DeploymentInput, refs: string[], who: string) {
@@ -269,14 +318,16 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project)}---\n${application(repo, project, 'dev')}` },
     { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url)}` },
     { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
-    { path: 'README.md', content: `# ${gitops}\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },
+    { path: 'docs/index.md', content: runbook(repo, project, false) },
+    { path: 'mkdocs.yml', content: mkdocs(repo) },
+    { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },
   ]);
   done.push(`repo ${OWNER}/${gitops} (apps/dev, image ${last.tag})`);
 
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/techdocs-ref: dir:.\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
@@ -343,6 +394,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       { path: 'apps/prod/externalsecret.yaml', content: externalSecret(repo, project, 'prod') },
       { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url)}---\n${application(repo, project, 'prod')}` },
     );
+    files.push({ path: 'docs/index.md', content: runbook(repo, project, true) });
     commands.push({
       title: `After merging the PR: secret store + ArgoCD app ${repo}-prod. Set the prod secrets in Infisical (${repo}-gitops / prod), then Sync`,
       cmd: `sudo kubectl apply -f https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd/argocd-prod.yaml`,
@@ -394,5 +446,27 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
       `remove the running apps (Backstage has no cluster access): sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found`,
       `Infisical project ${gitops} is kept (its secrets) — delete it there if no longer needed`,
     ],
+  };
+}
+
+// ---------- new ESO login (lost / rotated) ----------
+
+export async function newEsoLogin(config: Config, repo: string, refs: string[], who: string) {
+  const token = await githubToken(config, OWNER);
+  const { project } = await appInfo(token, repo);
+  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can create ESO logins`);
+  await requireDeployment(token, repo);
+  const { orgId, api } = await infisical(config);
+  const name = `eso-${repo}`;
+  const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
+  const id = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === name)?.identity?.id;
+  if (!id) throw err(404, `Infisical identity ${name} not found`);
+  const ua = await api('GET', `/api/v1/auth/universal-auth/identities/${id}`);
+  const cs = await api('POST', `/api/v1/auth/universal-auth/identities/${id}/client-secrets`, { description: `ESO — new login by ${who} (Backstage)` });
+  if (!ua.ok || !cs.ok) throw err(502, `Infisical: cannot create a client secret for ${name} (${ua.status}/${cs.status})`);
+  const clientId = ua.json.identityUniversalAuth?.clientId;
+  return {
+    identity: name,
+    cmd: `sudo kubectl -n external-secrets delete secret infisical-${repo}-auth --ignore-not-found\nsudo kubectl -n external-secrets create secret generic infisical-${repo}-auth \\\n  --from-literal=clientId='${clientId}' --from-literal=clientSecret='${cs.json.clientSecret}'`,
   };
 }

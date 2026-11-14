@@ -15,7 +15,7 @@ import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
-import { builds, createDeployment, deleteDeployment, deploy, promote } from './everestoDeploy';
+import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 
 const OWNER = 'Everesto-Inc';
@@ -293,6 +293,28 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await deleteDeployment(config, repo, refs, who, resourceUnregister(await auth.getOwnServiceCredentials()));
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`deployment of ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.get('/apps/:repo/deployment/setup', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const token = await githubToken(config, OWNER);
+            const { project } = await appInfo(token, repo);
+            const hasProd = (await readFile(token, `${repo}-gitops`, 'apps/prod/kustomization.yaml')) !== undefined;
+            res.json({ commands: setupCommands(repo, project, hasProd) });
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/deployment/eso-login', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await newEsoLogin(config, repo, refs, who);
+            logger.info(`new ESO login for ${repo} by ${who}`); // never log out.cmd (secret)
             res.json(out);
           } catch (e) { fail(res, e); }
         });

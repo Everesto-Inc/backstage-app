@@ -103,11 +103,11 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
               {result.done.map(d => <li key={d}>{d}</li>)}
             </Box>
-            <Typography variant="subtitle2" style={{ marginTop: 16 }}>Run on the control plane (<code>ssho control-plane</code>), in this order — Backstage has no cluster access:</Typography>
+            <Typography variant="subtitle2" style={{ marginTop: 16 }}>Run on the control plane (<code>ssho control-plane</code>), in this order — Backstage has no cluster access. Also available later: Edit deployment and the Tech Docs tab of {repo}-gitops.</Typography>
             {result.commands.map(c => <CmdBox key={c.title} {...c} />)}
             {result.commands.some(c => c.secret) && (
               <Typography variant="body2" style={{ color: STATUS.critical, marginTop: 12 }}>
-                The client secret is shown only now and is stored nowhere — copy it before closing.
+                The client secret is shown only now and is stored nowhere — copy it before closing. Lost it? Edit deployment → “New ESO login”.
               </Typography>
             )}
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>

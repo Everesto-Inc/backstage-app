@@ -172,7 +172,16 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<string[] | undefined>();
+  const [esoCmd, setEsoCmd] = useState<string | undefined>();
   const gitops = `${repo}-gitops`;
+  const { value: setup } = useAsync(async (): Promise<{ title: string; cmd: string }[]> =>
+    (await call('GET', `/apps/${repo}/deployment/setup`)).commands, [repo]);
+  const newLogin = async () => {
+    setBusy(true);
+    try { setEsoCmd((await call('POST', `/apps/${repo}/deployment/eso-login`)).cmd); } catch (e: any) {
+      alertApi.post({ message: `New ESO login failed: ${e.message}`, severity: 'error' });
+    } finally { setBusy(false); }
+  };
   const rows: [string, string, boolean][] = [
     ['ArgoCD', `active — ${repo}-dev${hasProd ? ` / ${repo}-prod` : ''}, manual sync`, true],
     ['Ansible', 'not used — excluded while ArgoCD deploys this app', false],
@@ -188,7 +197,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
     } catch (e: any) { alertApi.post({ message: `Delete failed: ${e.message}`, severity: 'error' }); } finally { setBusy(false); }
   };
   return (
-    <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
       <DialogTitle>{out ? `Deleted · ${gitops}` : `Edit deployment · ${repo}`}</DialogTitle>
       <DialogContent>
         {out ? (
@@ -201,6 +210,21 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
                 <Typography variant="body2" color="textSecondary">{note}</Typography>
               </Box>
             ))}
+            <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
+              <Typography variant="subtitle2">Setup commands (control plane) — also in the Tech Docs tab of {gitops}</Typography>
+              <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never stored — use “New ESO login” to get the login command again.</Typography>
+              {(setup ?? []).map(c => <CmdBox key={c.title} title={c.title} cmd={c.cmd} />)}
+              <Box mt={2} display="flex" alignItems="center" style={{ gap: 12 }}>
+                <Button size="small" variant="outlined" disabled={busy || !roles.maintainer} onClick={newLogin}>New ESO login</Button>
+                <Typography variant="caption" color="textSecondary">creates a new client secret for eso-{repo} in Infisical and shows the command once</Typography>
+              </Box>
+              {esoCmd && (
+                <>
+                  <CmdBox title={`Infisical login for ESO (eso-${repo}) — shown ONCE, copy it now`} cmd={esoCmd} secret />
+                  <Typography variant="caption" style={{ color: STATUS.critical }}>Not stored anywhere — after closing this dialog it is gone.</Typography>
+                </>
+              )}
+            </Box>
             {roles.owner ? (
               <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
                 <Typography variant="subtitle2" style={{ color: STATUS.critical }}>Delete deployment</Typography>
