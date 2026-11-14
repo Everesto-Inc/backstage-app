@@ -145,8 +145,7 @@ function sonarqubeSetup(config: Config) {
 
       const ghToken = await githubToken(config, owner);
       await setRepoSecret(ghToken, owner, repo, 'SONAR_TOKEN', tok.json.token);
-      await gh(ghToken, 'POST', `/repos/${owner}/${repo}/actions/variables`, { name: 'SONAR_HOST_URL', value: baseUrl });
-      ctx.logger.info(`Stored SONAR_TOKEN (encrypted) + SONAR_HOST_URL in ${owner}/${repo}`);
+      ctx.logger.info(`Stored SONAR_TOKEN (encrypted) in ${owner}/${repo}`);
       ctx.output('projectUrl', `${baseUrl}/dashboard?id=${encodeURIComponent(key)}`);
     },
   });
@@ -251,8 +250,6 @@ spec:
       });
       if (!dk.ok) throw new Error(`GitHub: cannot add deploy key to ${repo} (${dk.status})`);
       await setRepoSecret(token, owner, appRepo, 'GITOPS_DEPLOY_KEY', keys.privatePem);
-      await gh(token, 'POST', `/repos/${owner}/${appRepo}/actions/variables`, { name: 'GITOPS_REPO', value: `${owner}/${repo}` });
-      await gh(token, 'POST', `/repos/${owner}/${appRepo}/actions/variables`, { name: 'GITOPS_PATH', value: app });
       ctx.logger.info(`Deploy key on ${repo} + GITOPS_DEPLOY_KEY secret in ${appRepo}`);
       ctx.output('repoUrl', `https://github.com/${owner}/${repo}`);
       ctx.output('path', `${app}/`);
