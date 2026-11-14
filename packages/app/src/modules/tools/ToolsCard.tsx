@@ -18,6 +18,8 @@ import ErrorIcon from '@material-ui/icons/Error';
 import { CD_TOOLS, CI_TOOLS, Tool, ToolState, canRemoveTools, toolState } from './tools';
 import { STATUS } from './charts';
 import { ToolLogo } from './ToolLogo';
+import { EditPipelineDialog, SWITCHABLE } from '../space/EditPipelineDialog';
+import { useDemoData } from '../space/demo';
 
 const useStyles = makeStyles(theme => ({
   row: {
@@ -60,6 +62,7 @@ const Badge = ({ state }: { state: ToolState }) => {
   return null;
 };
 
+
 type Action = { tool: Tool; kind: 'add' | 'remove' | 'reconnect' };
 
 /** "Tools" card on an application's Overview. */
@@ -70,6 +73,9 @@ export const ToolsCard = () => {
   const { value: identity } = useAsync(() => identityApi.getBackstageIdentity(), []);
   const isOwner = canRemoveTools(entity, identity?.ownershipEntityRefs ?? []);
   const [action, setAction] = useState<Action | undefined>();
+  const demo = useDemoData();
+  // real Add / Remove (Loop pipelines): SonarQube, Semgrep, Dependabot → same dialog as Edit pipeline
+  const real = action && !demo && entity.kind === 'Component' && action.kind !== 'reconnect' && action.tool.id in SWITCHABLE;
 
   const TOOLS = entity.kind === 'Resource' ? CD_TOOLS : CI_TOOLS;
   const states = TOOLS.map(t => ({ tool: t, state: toolState(entity, t) }));
@@ -118,7 +124,10 @@ export const ToolsCard = () => {
         </Typography>
       )}
 
-      <Dialog open={Boolean(action)} onClose={() => setAction(undefined)} maxWidth="sm" fullWidth>
+      {real && action && (
+        <EditPipelineDialog entity={entity} preset={{ id: action.tool.id, on: action.kind === 'add' }} onClose={() => setAction(undefined)} />
+      )}
+      <Dialog open={Boolean(action) && !real} onClose={() => setAction(undefined)} maxWidth="sm" fullWidth>
         {action && (
           <>
             <DialogTitle>

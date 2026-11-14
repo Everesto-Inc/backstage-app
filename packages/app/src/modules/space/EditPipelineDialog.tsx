@@ -17,14 +17,14 @@ import { STATUS } from '../tools/charts';
  * Edit pipeline — REAL: saves tool switches (backend POST /api/everesto/apps/:repo/tools) and
  * deletes the whole application (POST /api/everesto/apps/:repo/delete, owners only).
  */
-const SWITCHABLE: Record<string, 'sonarqube' | 'semgrep' | 'dependabot'> = {
+export const SWITCHABLE: Record<string, 'sonarqube' | 'semgrep' | 'dependabot'> = {
   quality: 'sonarqube',
   semgrep: 'semgrep',
   dependabot: 'dependabot',
 };
 const ALWAYS_ON = ['secrets-scan', 'trivy', 'registry'];
 
-export const EditPipelineDialog = ({ entity, onClose }: { entity: Entity; onClose: () => void }) => {
+export const EditPipelineDialog = ({ entity, onClose, preset }: { entity: Entity; onClose: () => void; preset?: { id: string; on: boolean } }) => {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   const catalogApi = useApi(catalogApiRef);
@@ -42,7 +42,7 @@ export const EditPipelineDialog = ({ entity, onClose }: { entity: Entity; onClos
 
   const tools = TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));
   const initial = Object.fromEntries(tools.map(t => [t.id, toolState(entity, t).kind !== 'missing']));
-  const [checked, setChecked] = useState<Record<string, boolean>>(initial);
+  const [checked, setChecked] = useState<Record<string, boolean>>(preset ? { ...initial, [preset.id]: preset.on } : initial);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState('');
   const [result, setResult] = useState<{ done: string[]; warn?: string[] } | undefined>();
