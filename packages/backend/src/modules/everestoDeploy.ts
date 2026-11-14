@@ -155,7 +155,7 @@ async function infisical(config: Config) {
   const url = config.getOptionalString('infisical.url');
   const clientId = config.getOptionalString('infisical.clientId');
   const clientSecret = config.getOptionalString('infisical.clientSecret');
-  const orgId = config.getOptionalString('infisical.organizationId');
+  const orgId = config.getOptionalString('infisical.organizationId')?.trim().replace(/\/+$/, ''); // tolerate a pasted trailing '/'
   if (!url || !clientId || !clientSecret || !orgId) {
     throw err(409, 'Backstage is not connected to Infisical yet (identity backstage-platform) — nothing was created. Secrets are required for a deployment.');
   }
