@@ -61,9 +61,9 @@ export const useInsights = (e: Entity | undefined, enabled = true) => {
     if (!e || !enabled) return undefined;
     const { repo, project, app } = insightsTarget(e);
     // SonarQube switched off (annotation absent) → backend skips it, no stale measures
-    const sonar = e.metadata.annotations?.['sonarqube.org/project-key'] ? '1' : '0';
+    const sonar = e.metadata.annotations?.['sonarqube.org/project-key'] ?? '0';
     const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}/pipeline/${encodeURIComponent(repo)}?project=${encodeURIComponent(project)}&app=${encodeURIComponent(app)}&sonar=${sonar}`);
+    const res = await fetchApi.fetch(`${base}/pipeline/${encodeURIComponent(repo)}?project=${encodeURIComponent(project)}&app=${encodeURIComponent(app)}&sonar=${encodeURIComponent(sonar)}`);
     if (!res.ok) throw new Error(`insights HTTP ${res.status}`);
     return res.json();
   }, [e?.metadata.name, enabled]);

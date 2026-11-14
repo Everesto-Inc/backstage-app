@@ -62,7 +62,7 @@ async function sonarMeasures(config: Config, key: string) {
   };
 }
 
-async function pipelineInsights(config: Config, repo: string, project?: string, app?: string, sonar = true) {
+async function pipelineInsights(config: Config, repo: string, project?: string, app?: string, sonarKey?: string) {
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
 
@@ -127,8 +127,8 @@ async function pipelineInsights(config: Config, repo: string, project?: string, 
     failedStep,
     scanners,
     commitsPerDay: lastDays().map(d => ({ day: d, count: perDay[d] })),
-    // sonar=false: SonarQube switched off for this app → never show (old) measures
-    sonar: sonar ? await sonarMeasures(config, repo).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
+    // no sonar key: SonarQube switched off for this app → never show (old) measures
+    sonar: sonarKey ? await sonarMeasures(config, sonarKey).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
     lastDeploy,
   };
 }
@@ -153,7 +153,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
           }
           const project = typeof req.query.project === 'string' && /^[a-z0-9-]{1,63}$/.test(req.query.project) ? req.query.project : undefined;
           const app = typeof req.query.app === 'string' && /^[a-z0-9-]{1,63}$/.test(req.query.app) ? req.query.app : undefined;
-          const sonar = req.query.sonar !== '0';
+          // sonar = SonarQube project key from the app's annotation ('0' = switched off)
+          const q = typeof req.query.sonar === 'string' ? req.query.sonar : '';
+          const sonar = q === '1' ? repo : /^[A-Za-z0-9_.:-]{1,200}$/.test(q) && q !== '0' ? q : undefined;
           const key = `${repo}|${project}|${app}|${sonar}`;
           const hit = cache.get(key);
           if (hit && Date.now() - hit.at < TTL_MS) {
