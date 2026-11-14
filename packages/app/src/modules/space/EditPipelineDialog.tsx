@@ -143,8 +143,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
             <Typography variant="subtitle2" style={{ color: STATUS.critical, marginTop: 16 }}>Delete application</Typography>
             <Typography variant="body2" color="textSecondary" paragraph>
               Permanently deletes: GitHub repo <b>Everesto-Inc/{repo}</b> (code, Actions, secrets), SonarQube project
-              {sonarKey ? <> <b>{sonarKey}</b></> : ''}, its folder in <b>{project}-gitops-cd</b> (ArgoCD removes the running app),
-              deploy key and the catalog entry. Cannot be undone. Type <b>{repo}</b> to confirm.
+              {sonarKey ? <> <b>{sonarKey}</b></> : ''}, its deployment (<b>{repo}-gitops</b> repo + Infisical project + identity),
+              and the catalog entry. Kept: images in ghcr.io. Cannot be undone. Type <b>{repo}</b> to confirm.
             </Typography>
             <Box display="flex" style={{ gap: 12 }} alignItems="center">
               <TextField size="small" variant="outlined" placeholder={repo} value={confirmDelete} disabled={busy}

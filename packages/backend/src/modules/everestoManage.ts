@@ -15,6 +15,7 @@
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken, sonarProvision, sonarRemove } from './everestoActions';
+import { infisicalDelete } from './everestoDeploy';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -192,6 +193,9 @@ export async function deleteApp(
     if (d.ok) done.push(`GitHub repo ${OWNER}/${gitops} (CD)`);
     else warn.push(`could not delete ${gitops} (${d.status})`);
     warn.push(`remove the running app (Backstage has no cluster access): sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found`);
+    const inf = await infisicalDelete(config, repo);
+    done.push(...inf.done);
+    warn.push(...inf.warn);
   }
 
   await unregister(repo).then(() => done.push('catalog entry'), e => warn.push(`catalog: ${e}`));

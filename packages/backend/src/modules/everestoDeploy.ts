@@ -10,7 +10,8 @@
  *   promote           → PR in <repo>-gitops: prod tag := dev tag. First promote also creates apps/prod,
  *                       the prod secrets in Infisical <repo>-gitops (same names, CHANGE_ME values) and
  *                       argocd/argocd-prod.yaml.
- *   deleteDeployment  → deletes <repo>-gitops + catalog Resource (Infisical secrets are kept).
+ *   deleteDeployment  → deletes <repo>-gitops, catalog Resource, Infisical project <repo>-gitops + identity eso-<repo>.
+ *                       Kept: ghcr.io images, cluster secret infisical-<repo>-auth.
  * Every ArgoCD sync is MANUAL. Backstage has NO cluster access: it returns kubectl commands.
  */
 import { Config } from '@backstage/config';
@@ -223,6 +224,27 @@ async function infisicalSetup(config: Config, repo: string, env: Env, secrets: {
   const mem = await api('POST', `/api/v2/workspace/${ws.id}/identity-memberships/${identityId}`, { role: 'viewer' });
   if (!ua.ok || !cs.ok || !mem.ok) throw err(502, `Infisical: identity ${name} setup failed (${ua.status}/${cs.status}/${mem.status})`);
   return { ...base, clientId: ua.json.identityUniversalAuth?.clientId as string, clientSecret: cs.json.clientSecret as string };
+}
+
+/** Delete Infisical project <repo>-gitops + identity eso-<repo> (part of deleting the deployment). */
+export async function infisicalDelete(config: Config, repo: string): Promise<{ done: string[]; warn: string[] }> {
+  const done: string[] = [];
+  const warn: string[] = [];
+  let conn;
+  try { conn = await infisical(config); } catch (e: any) { return { done, warn: [`Infisical not reachable — delete project ${repo}-gitops by hand (${e.message})`] }; }
+  const { orgId, api } = conn;
+  const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
+  if (ws) {
+    const d = await api('DELETE', `/api/v1/workspace/${ws.id}`);
+    if (d.ok) done.push(`Infisical project ${repo}-gitops (all its secrets)`); else warn.push(`could not delete Infisical project ${repo}-gitops (${d.status})`);
+  }
+  const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
+  const id = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === `eso-${repo}`)?.identity?.id;
+  if (id) {
+    const d = await api('DELETE', `/api/v1/identities/${id}`);
+    if (d.ok) done.push(`Infisical identity eso-${repo}`); else warn.push(`could not delete identity eso-${repo} (${d.status})`);
+  }
+  return { done, warn };
 }
 
 // ---------- helpers ----------
@@ -457,11 +479,14 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   const del = await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}`);
   if (del.ok) done.push(`GitHub repo ${OWNER}/${gitops}`);
   else if (del.status !== 404) throw new Error(`GitHub: cannot delete ${gitops} (${del.status})`);
+  const inf = await infisicalDelete(config, repo);
+  done.push(...inf.done);
   return {
     done,
     warn: [
       `remove the running apps (Backstage has no cluster access): sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found`,
-      `Infisical project ${gitops} is kept (its secrets) — delete it there if no longer needed`,
+      ...inf.warn,
+      `kept: images in ghcr.io and the cluster secret infisical-${repo}-auth (namespace external-secrets)`,
     ],
   };
 }

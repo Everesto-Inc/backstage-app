@@ -229,8 +229,9 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
               <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
                 <Typography variant="subtitle2" style={{ color: STATUS.critical }}>Delete deployment</Typography>
                 <Typography variant="body2" color="textSecondary" paragraph>
-                  Deletes the GitHub repo <b>{gitops}</b> and its catalog entry. The CI application <b>{repo}</b> and its images stay;
-                  the Infisical project <b>{gitops}</b> is kept. You get the kubectl command that removes the running app.
+                  Deletes the GitHub repo <b>{gitops}</b>, its catalog entry, the Infisical project <b>{gitops}</b> (all its secrets)
+                  and the identity eso-{repo}. Kept: the CI application <b>{repo}</b>, its images, the cluster secret
+                  infisical-{repo}-auth. You get the kubectl command that removes the running app.
                   Type <b>{gitops}</b> to confirm.
                 </Typography>
                 <Box display="flex" style={{ gap: 12 }}>
