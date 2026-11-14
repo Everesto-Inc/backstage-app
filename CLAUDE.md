@@ -59,11 +59,11 @@ Right after start, Guest may lack `platform-team` for ~20 s until the catalog ha
 ```
 Platform  (Backstage itself — run by platform-admins)
  └── Entity        RARE ANIMAL name     e.g. blackbuck       tenant / organisation
-      └── Project  RIVER name           e.g. seine           unit of onboarding = one DevOps Space
-           └── Applications  <river>-<what>                  each one ALWAYS has a CI part + a CD part
-                ├── seine-java-backend      (CI repo)  ┐
-                ├── seine-react-frontend    (CI repo)  ├─ CD: folders in ONE repo seine-gitops-cd
-                └── seine-storage-pipeline  (CI repo)  ┘
+      └── Project  FLOWER name          e.g. orchid          unit of onboarding = one DevOps Space
+           └── Applications  <flower>-<what>                  each one ALWAYS has a CI part + a CD part
+                ├── orchid-java-backend      (CI repo)  ┐
+                ├── orchid-react-frontend    (CI repo)  ├─ CD: folders in ONE repo orchid-gitops-cd
+                └── orchid-storage-pipeline  (CI repo)  ┘
 ```
 
 Rules:
@@ -72,7 +72,7 @@ Rules:
   pipelines …). Every application has a CI block and a CD block.
 - **Onboarding is per project**, not per entity.
 - A user can be a member of **several spaces, also in other entities**. Example: `user-fox`
-  (a user of entity *fox*, illustrative) is invited into the `seine` space → sees two spaces.
+  (a user of entity *fox*, illustrative) is invited into the `orchid` space → sees two spaces.
 
 ## 2. Naming convention (enforced by templates)
 
@@ -81,19 +81,19 @@ Backstage names: lowercase, `a-z0-9-`, max 63 chars. Templates validate with a r
 | Level | Rule | Examples |
 |---|---|---|
 | Entity | rare animal | `blackbuck`, `okapi`, `axolotl`, `saola`, `vaquita`, `kakapo`, `pangolin`, `aye-aye`, `takin`, `markhor`, `dhole`, `snow-leopard`, `red-panda`, `shoebill` |
-| Project / Space | river | `seine`, `loire`, `rhone`, `danube`, `rhine`, `volga`, `mekong`, `yukon`, `zambezi`, `karnali`, `indus`, `tagus` |
-| Application (CI) | `<river>-<tech>-<role>` | `seine-java-backend`, `seine-react-frontend` |
-| Space CD repo | `<river>-gitops-cd` (one per space, folder per app) | `seine-gitops-cd/java-backend/` |
+| Project / Space | flower | `orchid`, `lotus`, `iris`, `dahlia`, `peony`, `magnolia`, `camellia`, `jasmine`, `lavender`, `tulip`, `azalea`, `protea` |
+| Application (CI) | `<flower>-<tech>-<role>` | `orchid-java-backend`, `orchid-react-frontend` |
+| Space CD repo | `<flower>-gitops-cd` (one per space, folder per app) | `orchid-gitops-cd/java-backend/` |
 
-Project (river) names must be unique across the whole platform — they prefix repo names in GitHub.
+Project (flower) names must be unique across the whole platform — they prefix repo names in GitHub.
 
-### Name picker (river, same mechanism for animals)
+### Name picker (flower, same mechanism for animals)
 
 The create-project form has a **combo box** (dropdown + free text):
-- **Suggestions** come from a large built-in river list (hundreds of names).
+- **Suggestions** come from a large built-in flower list (hundreds of names).
 - Names **already taken are hidden** from the dropdown (taken = a `System` with that name exists in the
   catalog, or a repo `Everesto-Inc/<name>-*` exists).
-- The user may **type their own** river name instead.
+- The user may **type their own** flower name instead.
 - Validation, both in the form and again server-side in the template's first step (avoids two people
   grabbing the same name at once): format regex, not taken, max length leaves room for
   `-<tech>-<role>` suffixes in repo names.
@@ -129,7 +129,7 @@ A team **manager** = `maintainer` (includes developer rights).
 
 | Tool | developer | maintainer / owner |
 |---|---|---|
-| GitHub (org `Everesto-Inc`, one team per space role) | team `seine-developers`: `write` on `seine-*` repos | team `seine-maintainers`: `maintain` |
+| GitHub (org `Everesto-Inc`, one team per space role) | team `orchid-developers`: `write` on `orchid-*` repos | team `orchid-maintainers`: `maintain` |
 | SonarQube | browse + see source | administer project |
 | ArgoCD | AppProject per space: view + sync | + delete / override |
 | Infisical | developer on the space's secrets | admin |
@@ -153,7 +153,7 @@ Unmatched GitHub logins are refused (as today).
 
 Inside a space, Backstage **Software Template**:
 
-1. Name: `seine-java-backend` (prefix = space's river, fixed)
+1. Name: `orchid-java-backend` (prefix = space's river, fixed)
 2. SCM: **GitHub** (only option)
 3. Technology: **Java** (later Node, Python, Go …)
 4. Quality: **SonarQube** (existing, tools node)
@@ -164,8 +164,8 @@ Creates and registers:
 
 | Repo | Contains |
 |---|---|
-| `seine-java-backend` | skeleton + GitHub Actions **CI**: test → SonarQube quality gate → build ARM image → push ghcr.io → bump tag in the space's gitops repo |
-| `seine-gitops-cd` (one per **space**, created with the space) | folder `java-backend/` added for this app → **CD**: an ArgoCD ApplicationSet per space syncs every folder to namespace `seine` |
+| `orchid-java-backend` | skeleton + GitHub Actions **CI**: test → SonarQube quality gate → build ARM image → push ghcr.io → bump tag in the space's gitops repo |
+| `orchid-gitops-cd` (one per **space**, created with the space) | folder `java-backend/` added for this app → **CD**: an ArgoCD ApplicationSet per space syncs every folder to namespace `orchid` |
 
 Plus SonarQube project, Infisical folder + ESO `ExternalSecret`, ArgoCD Application in the space's
 AppProject — all owned by the space. Same pattern as `backstage-app` ↔ `gitops-backstage`.
@@ -175,7 +175,7 @@ AppProject — all owned by the space. Same pattern as `backstage-app` ↔ `gito
 | Our concept | Backstage kind |
 |---|---|
 | Entity (animal) | `Domain` + `Group` type `organization` (`blackbuck`, `blackbuck-admins`) |
-| Project / Space (river) | `System` + `Group` type `team` with role sub-groups (`seine-owners`, `-maintainers`, `-developers`, `-viewers`) |
+| Project / Space (flower) | `System` + `Group` type `team` with role sub-groups (`orchid-owners`, `-maintainers`, `-developers`, `-viewers`) |
 | Application | `Component` (CI repo), `partOf` the System; space gitops repo = `Resource` of the System |
 | User | `User` (`metadata.name` = GitHub username, `profile.email` = invite email) |
 
@@ -206,7 +206,7 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 
 ## 9. Architecture decisions
 
-1. **One gitops repo per space** (`seine-gitops-cd`, folder per app) instead of one per application:
+1. **One gitops repo per space** (`orchid-gitops-cd`, folder per app) instead of one per application:
    half the repos, one ArgoCD ApplicationSet per space, one place to see what a space deploys.
 2. **Spaces, members and roles live in Backstage's Postgres** (custom catalog entity provider + small
    API), not in git YAML — an invite must not be a git commit. Git keeps templates + app `catalog-info.yaml`.
@@ -214,13 +214,13 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
    job makes GitHub teams, SonarQube groups, ArgoCD AppProjects and Infisical match it (idempotent,
    repairs manual drift).
 4. **Tenant isolation in K3s**, per space:
-   - namespace `<river>` (e.g. `seine`)
+   - namespace `<flower>` (e.g. `orchid`)
    - `ResourceQuota` (e.g. 512Mi) + `LimitRange` defaults
    - `NetworkPolicy`: deny traffic from other spaces' namespaces
    - ArgoCD `AppProject`: only its own namespace + its own repos
 5. **Secrets at scale (ESO):** one ESO for the cluster; per **space**: 1 Infisical project
    (envs dev/prod, folder per app), 1 machine identity (Viewer on that project only),
-   1 `ClusterSecretStore infisical-<river>` restricted by `conditions` to the space's namespace,
+   1 `ClusterSecretStore infisical-<flower>` restricted by `conditions` to the space's namespace,
    login secret in ns `external-secrets` (platform only). Per **app**: 1 folder + 1 ExternalSecret.
    The "create space" template provisions all of it via the Infisical API. Backstage itself is
    the first instance (`gitops-backstage/platform/cluster-secret-store.yaml`).
@@ -251,11 +251,11 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 ## 11. Decisions
 
 - **One GitHub organisation for everything: `Everesto-Inc`.** All repos live there
-  (`Everesto-Inc/seine-java-backend`, `Everesto-Inc/seine-gitops-cd`). Tenants are separated by
+  (`Everesto-Inc/orchid-java-backend`, `Everesto-Inc/orchid-gitops-cd`). Tenants are separated by
   GitHub **teams** per space role, not by orgs. Repos are **public** by default (free unlimited CI,
   native ARM runners, public images → no pull secrets, free secret push protection); private on request
   in the Create pipeline form. Secrets never in code: GitHub secrets / Infisical, Gitleaks in CI,
   GitHub secret scanning + push protection enabled on every public repo.
-- Project names: river suggestions (taken ones hidden) **or** free input, validated for uniqueness.
+- Project names: flower suggestions (taken ones hidden) **or** free input, validated for uniqueness.
 - Super admin = `platform-admins` group, not a space.
 - Users invited by email; login with GitHub.
