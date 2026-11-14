@@ -121,3 +121,11 @@ infisical:
   clientId: ${INFISICAL_CLIENT_ID}
   clientSecret: ${INFISICAL_CLIENT_SECRET}
   organizationId: ${INFISICAL_ORG_ID}
+
+# TechDocs: build docs inside the pod with the mkdocs venv baked into the image (/opt/techdocs) — no Docker in K3s.
+techdocs:
+  builder: 'local'
+  generator:
+    runIn: 'local'
+  publisher:
+    type: 'local'

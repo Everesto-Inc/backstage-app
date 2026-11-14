@@ -59,6 +59,17 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
            /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
            /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
+# TechDocs generator (techdocs.generator.runIn: local) — the pod has no Docker.
+# MkDocs + techdocs-core in an isolated venv, pinned (same version as local dev).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends python3 python3-venv && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 -m venv /opt/techdocs && \
+    /opt/techdocs/bin/pip install --no-cache-dir 'mkdocs-techdocs-core==1.7.1' && \
+    (/opt/techdocs/bin/pip uninstall -y pip setuptools || true)   # fewer packages for Trivy to flag
+ENV PATH="/opt/techdocs/bin:${PATH}"
+
 # From here on we use the least-privileged `node` user to run the backend.
 USER node
 WORKDIR /app
