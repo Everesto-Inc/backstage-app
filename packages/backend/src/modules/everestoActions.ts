@@ -53,7 +53,7 @@ export async function gh(token: string, method: string, path: string, body?: unk
   return { status: res.status, ok: res.ok, json: text ? JSON.parse(text) : undefined };
 }
 
-async function setRepoSecret(token: string, owner: string, repo: string, name: string, value: string) {
+export async function setRepoSecret(token: string, owner: string, repo: string, name: string, value: string) {
   const key = await gh(token, 'GET', `/repos/${owner}/${repo}/actions/secrets/public-key`);
   if (!key.ok) throw new Error(`GitHub: cannot read secrets public key (${key.status})`);
   await sodium.ready;
@@ -66,6 +66,57 @@ async function setRepoSecret(token: string, owner: string, repo: string, name: s
     key_id: key.json.key_id,
   });
   if (!res.ok) throw new Error(`GitHub: cannot set secret ${name} (${res.status})`);
+}
+
+/** SonarQube API (POST, form-encoded) with the backstage-bot token from sonarqube.apiKey. */
+export function sonarApi(config: Config) {
+  const baseUrl = config.getOptionalString('sonarqube.baseUrl');
+  const apiKey = config.getOptionalString('sonarqube.apiKey');
+  if (!baseUrl || !apiKey) throw new Error('sonarqube.baseUrl / sonarqube.apiKey not configured');
+  const auth = `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
+  const post = async (path: string, params: Record<string, string>) => {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params),
+    });
+    const text = await res.text();
+    let json: any;
+    try { json = text ? JSON.parse(text) : undefined; } catch { json = text; }
+    return { status: res.status, ok: res.ok, json };
+  };
+  return { baseUrl, post };
+}
+
+/** Create SonarQube project + project-only analysis token → encrypted GitHub secret SONAR_TOKEN. */
+export async function sonarProvision(config: Config, owner: string, repo: string, key: string, tags: string[] = [], log: (m: string) => void = () => {}) {
+  const { baseUrl, post } = sonarApi(config);
+  const created = await post('/api/projects/create', { project: key, name: key, visibility: 'private' });
+  if (!created.ok && !JSON.stringify(created.json ?? '').includes('already exists')) {
+    throw new Error(`SonarQube: cannot create project ${key} (${created.status})`);
+  }
+  log(`SonarQube project ${key} ${created.ok ? 'created' : 'already existed'}`);
+  if (tags.length) await post('/api/project_tags/set', { project: key, tags: tags.join(',') });
+  // Token name must be unique per user — timestamp keeps re-runs safe.
+  const tok = await post('/api/user_tokens/generate', {
+    name: `ci-${key}-${Date.now()}`,
+    type: 'PROJECT_ANALYSIS_TOKEN',
+    projectKey: key,
+    expirationDate: new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
+  });
+  if (!tok.ok) throw new Error(`SonarQube: cannot create analysis token (${tok.status})`);
+  await setRepoSecret(await githubToken(config, owner), owner, repo, 'SONAR_TOKEN', tok.json.token);
+  log(`Stored SONAR_TOKEN (encrypted) in ${owner}/${repo}`);
+  return `${baseUrl}/dashboard?id=${encodeURIComponent(key)}`;
+}
+
+/** Delete the SonarQube project (its tokens die with it) + the repo secret SONAR_TOKEN. */
+export async function sonarRemove(config: Config, owner: string, repo: string, key: string) {
+  const { post } = sonarApi(config);
+  const del = await post('/api/projects/delete', { project: key });
+  if (!del.ok && del.status !== 404) throw new Error(`SonarQube: cannot delete project ${key} (${del.status})`);
+  const sec = await gh(await githubToken(config, owner), 'DELETE', `/repos/${owner}/${repo}/actions/secrets/SONAR_TOKEN`);
+  if (!sec.ok && sec.status !== 404) throw new Error(`GitHub: cannot delete secret SONAR_TOKEN (${sec.status})`);
 }
 
 /** RSA keypair: OpenSSH public key (for GitHub deploy key) + PEM private key (for the CI secret). */
@@ -109,45 +160,9 @@ function sonarqubeSetup(config: Config) {
       },
     },
     async handler(ctx) {
-      const baseUrl = config.getOptionalString('sonarqube.baseUrl');
-      const apiKey = config.getOptionalString('sonarqube.apiKey');
-      if (!baseUrl || !apiKey) throw new Error('sonarqube.baseUrl / sonarqube.apiKey not configured');
-      const auth = `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
-      const sonar = async (path: string, params: Record<string, string>) => {
-        const res = await fetch(`${baseUrl}${path}`, {
-          method: 'POST',
-          headers: { authorization: auth, 'content-type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams(params),
-        });
-        const text = await res.text();
-        return { status: res.status, ok: res.ok, json: text ? JSON.parse(text) : undefined };
-      };
       const { owner, repo } = parseRepoUrl(ctx.input.repoUrl);
-      const key = ctx.input.projectKey;
-
-      const created = await sonar('/api/projects/create', { project: key, name: key, visibility: 'private' });
-      if (!created.ok && !JSON.stringify(created.json ?? '').includes('already exists')) {
-        throw new Error(`SonarQube: cannot create project ${key} (${created.status})`);
-      }
-      ctx.logger.info(`SonarQube project ${key} ${created.ok ? 'created' : 'already existed'}`);
-
-      if (ctx.input.tags?.length) {
-        await sonar('/api/project_tags/set', { project: key, tags: ctx.input.tags.join(',') });
-      }
-
-      // Token name must be unique per user — timestamp keeps re-runs safe.
-      const tok = await sonar('/api/user_tokens/generate', {
-        name: `ci-${key}-${Date.now()}`,
-        type: 'PROJECT_ANALYSIS_TOKEN',
-        projectKey: key,
-        expirationDate: new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10),
-      });
-      if (!tok.ok) throw new Error(`SonarQube: cannot create analysis token (${tok.status})`);
-
-      const ghToken = await githubToken(config, owner);
-      await setRepoSecret(ghToken, owner, repo, 'SONAR_TOKEN', tok.json.token);
-      ctx.logger.info(`Stored SONAR_TOKEN (encrypted) in ${owner}/${repo}`);
-      ctx.output('projectUrl', `${baseUrl}/dashboard?id=${encodeURIComponent(key)}`);
+      const url = await sonarProvision(config, owner, repo, ctx.input.projectKey, ctx.input.tags, m => ctx.logger.info(m));
+      ctx.output('projectUrl', url);
     },
   });
 }

@@ -13,6 +13,7 @@ import { useIsProjectOwner, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
+import { EditPipelineDialog } from './EditPipelineDialog';
 import { days, metricsFor } from './metrics';
 import { useDemoData } from './demo';
 import { RealCdMetrics, RealCiMetrics, RealSummary } from './RealMetrics';
@@ -218,7 +219,8 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
         </div>
       )}
 
-      {editing && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} isOwner={isOwner} />}
+      {editing && !demo && kind === 'ci' && <EditPipelineDialog entity={e} onClose={() => setEditing(false)} />}
+      {editing && (demo || kind !== 'ci') && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} isOwner={isOwner} />}
     </div>
   );
 };

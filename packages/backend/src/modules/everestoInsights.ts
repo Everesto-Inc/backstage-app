@@ -12,6 +12,9 @@
 import { coreServices, createBackendPlugin } from '@backstage/backend-plugin-api';
 import { Config } from '@backstage/config';
 import Router from 'express-promise-router';
+import express from 'express';
+import { catalogServiceRef } from '@backstage/plugin-catalog-node';
+import { ToolChange, deleteApp, setTools } from './everestoManage';
 import { gh, githubToken } from './everestoActions';
 
 const OWNER = 'Everesto-Inc';
@@ -141,8 +144,12 @@ export const everestoInsightsPlugin = createBackendPlugin({
         httpRouter: coreServices.httpRouter,
         config: coreServices.rootConfig,
         logger: coreServices.logger,
+        httpAuth: coreServices.httpAuth,
+        userInfo: coreServices.userInfo,
+        auth: coreServices.auth,
+        catalog: catalogServiceRef,
       },
-      async init({ httpRouter, config, logger }) {
+      async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog }) {
         const cache = new Map<string, { at: number; data: unknown }>();
         const router = Router();
         router.get('/pipeline/:repo', async (req, res) => {
@@ -155,7 +162,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
           const app = typeof req.query.app === 'string' && /^[a-z0-9-]{1,63}$/.test(req.query.app) ? req.query.app : undefined;
           // sonar = SonarQube project key from the app's annotation ('0' = switched off)
           const q = typeof req.query.sonar === 'string' ? req.query.sonar : '';
-          const sonar = q === '1' ? repo : /^[A-Za-z0-9_.:-]{1,200}$/.test(q) && q !== '0' ? q : undefined;
+          let sonar: string | undefined;
+          if (q === '1') sonar = repo;
+          else if (q !== '0' && /^[A-Za-z0-9_.:-]{1,200}$/.test(q)) sonar = q;
           const key = `${repo}|${project}|${app}|${sonar}`;
           const hit = cache.get(key);
           if (hit && Date.now() - hit.at < TTL_MS) {
@@ -171,6 +180,59 @@ export const everestoInsightsPlugin = createBackendPlugin({
             res.status(502).json({ error: 'could not read pipeline data' });
           }
         });
+
+        // ---- change tools / delete an application (see everestoManage.ts) ----
+        router.use(express.json());
+        const caller = async (req: express.Request) => {
+          const credentials = await httpAuth.credentials(req, { allow: ['user'] });
+          const u = await userInfo.getUserInfo(credentials);
+          return { refs: u.ownershipEntityRefs, who: u.userEntityRef.replace(/^user:default\//, '') };
+        };
+        const fail = (res: express.Response, e: any) => {
+          const status = e?.status ?? 500;
+          if (status === 500) logger.warn(`manage failed: ${e}`);
+          res.status(status).json({ error: e?.message ?? String(e) });
+        };
+        const validRepo = (r: string) => /^[a-z0-9][a-z0-9-]{0,99}$/.test(r);
+
+        router.post('/apps/:repo/tools', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          const change: ToolChange = {};
+          for (const k of ['sonarqube', 'semgrep', 'dependabot'] as const) {
+            if (typeof req.body?.[k] === 'boolean') change[k] = req.body[k];
+          }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await setTools(config, repo, change, refs, who);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`tools of ${repo} changed by ${who}: ${out.done.join(', ')}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/delete', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          if (req.body?.confirm !== repo) { res.status(400).json({ error: 'type the application name to confirm' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const credentials = await auth.getOwnServiceCredentials();
+            const unregister = async (r: string) => {
+              const loc = await catalog.getLocationByEntity(`component:default/${r}`, { credentials });
+              if (loc) await catalog.removeLocationById(loc.id, { credentials });
+              const e = await catalog.getEntityByRef(`component:default/${r}`, { credentials });
+              if (e?.metadata.uid) await catalog.removeEntityByUid(e.metadata.uid, { credentials });
+              const g = await catalog.getEntityByRef(`resource:default/${r}-gitops`, { credentials });
+              if (g?.metadata.uid) await catalog.removeEntityByUid(g.metadata.uid, { credentials });
+            };
+            const out = await deleteApp(config, repo, refs, unregister);
+            for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
+            logger.info(`application ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
         httpRouter.use(router);
         // default auth policy: only signed-in users (no unauthenticated access)
       },
