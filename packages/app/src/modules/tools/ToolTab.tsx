@@ -9,7 +9,7 @@ import { ToolLogo } from './ToolLogo';
 import { ConnectToSee, useDemoData } from '../space/demo';
 import { compatWrapper } from '@backstage/core-compat-api';
 import { SonarQubeCard } from '@backstage-community/plugin-sonarqube';
-import { RealCiTab } from '../space/RealMetrics';
+import { RealCiTab, RealCodeTab, RealImageTab } from '../space/RealMetrics';
 
 // DUMMY data — layout preview only. Each tab becomes the real plugin later.
 
@@ -215,6 +215,8 @@ export const makeToolTab = (toolId: string) => () => {
   // Live data: SonarQube is wired (plugin + backend). Other tools follow the same pattern.
   if (!demo && toolId === 'quality') return compatWrapper(<SonarQubeCard />);
   if (!demo && toolId === 'ci') return <RealCiTab entity={entity} />;
+  if (!demo && toolId === 'code') return <RealCodeTab entity={entity} />;
+  if (!demo && toolId === 'registry') return <RealImageTab entity={entity} />;
   if (!demo) return <ConnectToSee what={`Live ${tool.name} data`} tools={tool.name} />;
 
   return (

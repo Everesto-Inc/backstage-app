@@ -46,6 +46,13 @@ export type Insights = {
   lastDeploy?: { at: string; message: string; url: string };
   envs?: Partial<Record<"dev" | "prod", { tag?: string; at?: string; message?: string; url?: string }>>;
   gitopsRepo?: string;
+  code?: {
+    visibility: string; defaultBranch: string; pushedAt: string;
+    openPulls: { number: number; title: string; author: string; createdAt: string; url: string; draft: boolean }[];
+    languages: { name: string; pct: number }[];
+    lastCommits: { sha: string; message: string; author: string; at: string; url: string }[];
+  };
+  images?: { tag: string; at: string; title: string; url: string }[];
 };
 
 /** repo = Component name; for a gitops Resource "<repo>-gitops" → deploy info from <project>-gitops-cd/<app>/. */

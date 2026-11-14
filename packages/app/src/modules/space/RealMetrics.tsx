@@ -283,3 +283,78 @@ export const RealSecurityTab = ({ entity }: { entity: Entity }) => {
     </Grid>
   );
 };
+
+/** Application → Code tab (real): repo facts, open pull requests, languages, latest commits on main. */
+export const RealCodeTab = ({ entity }: { entity: Entity }) => {
+  const { value: d, loading } = useInsights(entity);
+  if (loading) return <Muted>Loading…</Muted>;
+  const c = d?.code;
+  if (!c) return <Muted>Repository not found.</Muted>;
+  const box = { p: 2, borderRadius: 12, style: { border: '1px solid rgba(128,128,128,0.25)' } } as const;
+  return (
+    <Grid container spacing={2}>
+      <Grid item xs={12} md={3}><StatTile label="Repository" value={<Link href={d?.repoUrl} target="_blank" rel="noopener" style={{ fontSize: 18 }}>{insightsTarget(entity).repo}</Link>} delta={`${c.visibility} · default branch ${c.defaultBranch}`} /></Grid>
+      <Grid item xs={12} md={3}><StatTile label="Open pull requests" value={c.openPulls.length} delta={c.openPulls.length ? `oldest ${ago(c.openPulls[c.openPulls.length - 1].createdAt)}` : 'none open'} /></Grid>
+      <Grid item xs={12} md={3}><StatTile label="Last push" value={<span style={{ fontSize: 18 }}>{ago(c.pushedAt)}</span>} delta={`${(d?.commitsPerDay ?? []).reduce((a, b) => a + b.count, 0)} commits on main · 14 days`} /></Grid>
+      <Grid item xs={12} md={3}><StatTile label="Languages" value={<span style={{ fontSize: 16 }}>{c.languages.slice(0, 3).map(l => `${l.name} ${l.pct}%`).join(' · ') || '—'}</span>} /></Grid>
+      <Grid item xs={12} md={6}>
+        <Box {...box}>
+          <Typography variant="subtitle2" gutterBottom>Latest commits on {c.defaultBranch}</Typography>
+          {c.lastCommits.length === 0 && <Muted>none in the last 14 days</Muted>}
+          {c.lastCommits.map(x => (
+            <Box key={x.sha} display="flex" style={{ gap: 10, padding: '5px 0', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14 }}>
+              <Link href={x.url} target="_blank" rel="noopener"><code>{x.sha}</code></Link>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.message}</span>
+              <Muted>{x.author} · {ago(x.at)}</Muted>
+            </Box>
+          ))}
+        </Box>
+      </Grid>
+      <Grid item xs={12} md={6}>
+        <Box {...box}>
+          <Typography variant="subtitle2" gutterBottom>Open pull requests</Typography>
+          {c.openPulls.length === 0 && <Muted>none</Muted>}
+          {c.openPulls.map(p => (
+            <Box key={p.number} display="flex" style={{ gap: 10, padding: '5px 0', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14 }}>
+              <Link href={p.url} target="_blank" rel="noopener">#{p.number}</Link>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.draft ? '[draft] ' : ''}{p.title}</span>
+              <Muted>{p.author} · {ago(p.createdAt)}</Muted>
+            </Box>
+          ))}
+        </Box>
+      </Grid>
+    </Grid>
+  );
+};
+
+/** Application → Image tab (real): images in ghcr.io (last 5 main builds), where each one runs, pull command. */
+export const RealImageTab = ({ entity }: { entity: Entity }) => {
+  const { value: d, loading } = useInsights(entity);
+  if (loading) return <Muted>Loading…</Muted>;
+  const image = entity.metadata.annotations?.['everesto.live/image'];
+  const imgs = d?.images ?? [];
+  const where = (tag: string) => [d?.envs?.dev?.tag === tag && 'dev', d?.envs?.prod?.tag === tag && 'prod'].filter(Boolean).join(' + ');
+  return (
+    <Grid container spacing={2}>
+      <Grid item xs={12} md={4}><StatTile label="Image" value={<span style={{ fontSize: 15, wordBreak: 'break-all' }}>{image ?? '—'}</span>} delta="linux/arm64 · scanned by Trivy before push" /></Grid>
+      <Grid item xs={12} md={4}><StatTile label="Newest tag" value={<span style={{ fontSize: 18 }}>{imgs[0]?.tag ?? '—'}</span>} delta={imgs[0] ? ago(imgs[0].at) : 'no build on main yet'} /></Grid>
+      <Grid item xs={12} md={4}><StatTile label="Deployed" value={<span style={{ fontSize: 16 }}>{d?.envs?.dev?.tag ? `dev ${d.envs.dev.tag}` : 'not deployed'}</span>} delta={d?.envs?.prod?.tag ? `prod ${d.envs.prod.tag}` : 'no prod yet'} /></Grid>
+      <Grid item xs={12}>
+        <Box p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
+          <Typography variant="subtitle2" gutterBottom>Tags in ghcr.io (CI keeps the last 5)</Typography>
+          {imgs.length === 0 && <Muted>none yet</Muted>}
+          {imgs.map(i => (
+            <Box key={i.tag} display="flex" alignItems="center" style={{ gap: 12, padding: '6px 0', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14 }}>
+              <code style={{ width: 110 }}>{i.tag}</code>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.title}</span>
+              {where(i.tag) && <span style={{ fontWeight: 600, color: STATUS.good }}>{where(i.tag)}</span>}
+              <Muted>{ago(i.at)}</Muted>
+              <Link href={i.url} target="_blank" rel="noopener">build</Link>
+            </Box>
+          ))}
+          {image && imgs[0] && <Box mt={1.5}><Muted>Pull: </Muted><code>docker pull {image}:{imgs[0].tag}</code></Box>}
+        </Box>
+      </Grid>
+    </Grid>
+  );
+};

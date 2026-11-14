@@ -70,10 +70,24 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
 
-  const [runsRes, commitsRes] = await Promise.all([
+  const [runsRes, commitsRes, repoRes, prsRes, langRes] = await Promise.all([
     gh(token, 'GET', `/repos/${OWNER}/${repo}/actions/runs?per_page=30`),
     gh(token, 'GET', `/repos/${OWNER}/${repo}/commits?sha=main&since=${since}&per_page=100`),
+    gh(token, 'GET', `/repos/${OWNER}/${repo}`),
+    gh(token, 'GET', `/repos/${OWNER}/${repo}/pulls?state=open&per_page=50`),
+    gh(token, 'GET', `/repos/${OWNER}/${repo}/languages`),
   ]);
+  const langTotal = Object.values((langRes.json ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0) || 1;
+  const code = repoRes.ok ? {
+    visibility: repoRes.json.visibility as string,
+    defaultBranch: repoRes.json.default_branch as string,
+    pushedAt: repoRes.json.pushed_at as string,
+    openPulls: ((prsRes.json ?? []) as any[]).map(p => ({ number: p.number, title: p.title, author: p.user?.login, createdAt: p.created_at, url: p.html_url, draft: p.draft })),
+    languages: Object.entries((langRes.json ?? {}) as Record<string, number>).map(([name, bytes]) => ({ name, pct: Math.round((bytes / langTotal) * 100) })),
+    lastCommits: ((commitsRes.json ?? []) as any[]).slice(0, 8).map(c => ({
+      sha: String(c.sha).slice(0, 7), message: String(c.commit?.message ?? '').split('\n')[0], author: c.author?.login ?? c.commit?.author?.name, at: c.commit?.committer?.date, url: c.html_url,
+    })),
+  } : undefined;
   if (runsRes.status === 404) return { exists: false };
 
   const runs = ((runsRes.json?.workflow_runs ?? []) as any[])
@@ -140,6 +154,9 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
     sonar: sonarKey ? await sonarMeasures(config, sonarKey).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
     lastDeploy,
     envs: Object.keys(envs).length ? envs : undefined,
+    code,
+    images: runs.filter(r => r.branch === 'main' && r.conclusion === 'success' && r.event !== 'pull_request').slice(0, 5)
+      .map(r => ({ tag: `sha-${r.sha}`, at: r.createdAt, title: r.title, url: r.url })),
     gitopsRepo: Object.keys(envs).length ? `https://github.com/${OWNER}/${gitops}` : undefined,
   };
 }
