@@ -35,7 +35,7 @@ export type DeploymentInput = {
 const kustomization = (image: string, tag: string, project: string, env: Env) => `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${ns(project, env)}
-resources: [deployment.yaml, service.yaml, externalsecret.yaml]
+resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml]
 images:
   - name: ${image}
     newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
@@ -68,6 +68,14 @@ ${d.config.map(c => `            - { name: ${c.name}, value: ${JSON.stringify(c.
             limits: { memory: ${d.memoryMi}Mi }
           readinessProbe: { tcpSocket: { port: ${d.port} }, periodSeconds: 10 }
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
+`;
+
+// own manifest (not only CreateNamespace=true): ArgoCD skips CreateNamespace on partial syncs
+const namespace = (project: string, env: Env) => `apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${ns(project, env)}
+  labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
 `;
 
 const service = (repo: string, port: number) => `apiVersion: v1
@@ -312,6 +320,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   });
   await commit(token, gitops, `CD for ${repo}: apps/dev (Backstage, by ${who})`, [
     { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, project, 'dev') },
+    { path: 'apps/dev/namespace.yaml', content: namespace(project, 'dev') },
     { path: 'apps/dev/deployment.yaml', content: deployment(repo, image, project, 'dev', d) },
     { path: 'apps/dev/service.yaml', content: service(repo, d.port) },
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
@@ -391,6 +400,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       },
       { path: 'apps/prod/deployment.yaml', content: devDep.replace(/everesto\.live\/env: dev/g, 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
       { path: 'apps/prod/service.yaml', content: devSvc },
+      { path: 'apps/prod/namespace.yaml', content: namespace(project, 'prod') },
       { path: 'apps/prod/externalsecret.yaml', content: externalSecret(repo, project, 'prod') },
       { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url)}---\n${application(repo, project, 'prod')}` },
     );
