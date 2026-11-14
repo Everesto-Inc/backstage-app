@@ -273,7 +273,7 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - Default env **dev** (ns `<project>-dev`). **Every ArgoCD sync is manual.** "Deploy to dev" = pick one of the last
   5 builds → tag committed to `apps/dev`. "Promote to prod" = PR (prod tag := dev tag); the first promote also creates
   `apps/prod`, ns `<project>-prod`, the prod secrets in Infisical and `argocd/argocd-prod.yaml`.
-- **Delete deployment** (owners): deletes `<app>-gitops`, catalog Resource, Infisical project `<app>-gitops` + identity `eso-<app>`. Kept: ghcr.io images, cluster secret `infisical-<app>-auth`. Delete application does the same for its deployment.
+- **Delete deployment** (owners): deletes `<app>-gitops`, catalog Resource, Infisical project `<app>-gitops` + identity `eso-<app>`. Kept: ghcr.io images only (the kubectl command also removes the apps, both stores and `infisical-<app>-auth`). Delete application does the same for its deployment.
 - Backstage has **no cluster access** — it returns kubectl commands. Tenant pods need node label
   `everesto.live/pool=tenants`. CD tool: ArgoCD only (no Ansible). Grafana: placeholder.
 - Backstage ↔ Infisical: identity `backstage-platform` (org Admin), keys INFISICAL_CLIENT_ID / _SECRET / _ORG_ID.

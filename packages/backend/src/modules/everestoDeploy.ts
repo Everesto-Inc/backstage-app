@@ -641,9 +641,9 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   return {
     done,
     warn: [
-      `run on the control plane (Backstage has no cluster access) — removes dev + prod pods and the secret stores: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found`,
+      `run on the control plane (Backstage has no cluster access) — removes dev + prod pods, the secret stores and the (now invalid) ESO login: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found && sudo kubectl -n external-secrets delete secret infisical-${repo}-auth --ignore-not-found`,
       ...inf.warn,
-      `kept: images in ghcr.io and the cluster secret infisical-${repo}-auth (namespace external-secrets)`,
+      'kept: the images in ghcr.io',
     ],
   };
 }

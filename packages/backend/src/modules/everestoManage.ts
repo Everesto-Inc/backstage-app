@@ -192,7 +192,7 @@ export async function deleteApp(
     const d = await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}`);
     if (d.ok) done.push(`GitHub repo ${OWNER}/${gitops} (CD)`);
     else warn.push(`could not delete ${gitops} (${d.status})`);
-    warn.push(`run on the control plane (Backstage has no cluster access) — removes dev + prod pods and the secret stores: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found`);
+    warn.push(`run on the control plane (Backstage has no cluster access) — removes dev + prod pods, the secret stores and the (now invalid) ESO login: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found && sudo kubectl -n external-secrets delete secret infisical-${repo}-auth --ignore-not-found`);
     const inf = await infisicalDelete(config, repo);
     done.push(...inf.done);
     warn.push(...inf.warn);
