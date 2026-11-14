@@ -29,7 +29,7 @@ import { generateKeyPairSync } from 'node:crypto';
 const GH = 'https://api.github.com';
 
 /** Installation token of the GitHub App for an owner (e.g. Everesto-Inc). */
-async function githubToken(config: Config, owner: string): Promise<string> {
+export async function githubToken(config: Config, owner: string): Promise<string> {
   const integrations = ScmIntegrations.fromConfig(config);
   const provider = DefaultGithubCredentialsProvider.fromIntegrations(integrations);
   const { token } = await provider.getCredentials({ url: `https://github.com/${owner}` });
@@ -37,7 +37,7 @@ async function githubToken(config: Config, owner: string): Promise<string> {
   return token;
 }
 
-async function gh(token: string, method: string, path: string, body?: unknown) {
+export async function gh(token: string, method: string, path: string, body?: unknown) {
   const res = await fetch(`${GH}${path}`, {
     method,
     headers: {

@@ -9,6 +9,7 @@
 import { createBackend } from '@backstage/backend-defaults';
 import { permissionPolicyModule } from './modules/permissionPolicy';
 import { everestoActionsModule } from './modules/everestoActions';
+import { everestoInsightsPlugin } from './modules/everestoInsights';
 
 const backend = createBackend();
 
@@ -20,6 +21,8 @@ backend.add(import('@backstage/plugin-scaffolder-backend'));
 backend.add(import('@backstage/plugin-scaffolder-backend-module-github'));
 // everesto:sonarqube:setup, everesto:gitops:add-app (Create pipeline template)
 backend.add(everestoActionsModule);
+// /api/everesto/pipeline/:repo — real CI/CD insights for the DevOps Space pages
+backend.add(everestoInsightsPlugin);
 backend.add(
   import('@backstage/plugin-scaffolder-backend-module-notifications'),
 );

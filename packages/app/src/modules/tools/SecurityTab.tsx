@@ -7,7 +7,8 @@ import { SECURITY_TOOL_IDS, TOOLS, toolState } from './tools';
 import { ToolLogo } from './ToolLogo';
 import { STATUS, StatTile, Sparkline } from './charts';
 import { days, metricsFor } from '../space/metrics';
-import { ConnectToSee, useDemoData } from '../space/demo';
+import { useDemoData } from '../space/demo';
+import { RealSecurityTab } from '../space/RealMetrics';
 
 /**
  * Application → "Security": one place for all scanners (Gitleaks, Semgrep, Trivy,
@@ -29,10 +30,11 @@ export const SecurityTab = () => {
     on('deps') && { tool: 'Nexus IQ', sev: 'medium', what: 'Licence policy: GPL-3.0 dependency', where: 'some-lib 0.4', fix: 'replace with an Apache-2.0 alternative' },
   ].filter(Boolean) as { tool: string; sev: string; what: string; where: string; fix: string }[];
 
+  if (!demo) return <RealSecurityTab entity={entity} />;
   return (
     <Box>
       <Grid container spacing={2}>
-        {!demo && <Grid item xs={12}><ConnectToSee what="Findings (secrets, code, dependencies, image)" tools="the scanners" /></Grid>}
+
         {demo && <><Grid item xs={12} md={4}>
           <StatTile
             label="Open high / critical"

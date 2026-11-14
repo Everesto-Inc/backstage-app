@@ -14,7 +14,8 @@ import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
 import { days, metricsFor } from './metrics';
-import { ConnectToSee, useDemoData } from './demo';
+import { useDemoData } from './demo';
+import { RealCdMetrics, RealCiMetrics, RealSummary } from './RealMetrics';
 import { CD_TOOLS, CI_TOOLS, Tool, toolState } from '../tools/tools';
 import { ToolLogo } from '../tools/ToolLogo';
 import { Meter, STATUS, Sparkline, StatTile } from '../tools/charts';
@@ -130,14 +131,8 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
         <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
       </div>
 
-      {!demo && kind !== 'repo' && (
-        <Box px={3} pb={2.5}>
-          <ConnectToSee
-            what={kind === 'ci' ? 'Builds, test coverage, new issues and vulnerabilities' : 'Sync status, health and deployments'}
-            tools={kind === 'ci' ? 'GitHub Actions, SonarQube and the scanners' : 'ArgoCD / AWX'}
-          />
-        </Box>
-      )}
+      {!demo && kind === 'ci' && <RealCiMetrics entity={e} />}
+      {!demo && kind === 'cd' && <RealCdMetrics entity={e} />}
       {demo && kind === 'ci' && (() => {
         const st = (id: string) => toolState(e, tools.find(x => x.id === id)!);
         const scanners = (['semgrep', 'trivy', 'sast', 'deps'] as const)
@@ -304,6 +299,7 @@ export const ProjectPipelines = () => {
         </Box>
       </Box>
 
+      {!demo && <RealSummary ci={ci} />}
       {demo && <Grid container spacing={2}>
         <Grid item xs={12} sm={6} md={3}>
           <StatTile label="Commits · 14 days" value={commits.reduce((a, b) => a + b, 0)}>
