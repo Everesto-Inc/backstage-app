@@ -12,6 +12,7 @@ import ErrorIcon from '@material-ui/icons/Error';
 import { useIsProjectOwner, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
+import { CreatePipelineDialog } from './CreatePipelineDialog';
 import { days, metricsFor } from './metrics';
 import { ConnectToSee, useDemoData } from './demo';
 import { CD_TOOLS, CI_TOOLS, Tool, toolState } from '../tools/tools';
@@ -264,19 +265,8 @@ export const ProjectPipelines = () => {
       <Button size="small" startIcon={<ArrowBack />}>{domain} · all projects</Button>
     </EntityRefLink>
   );
-  const dialog = (
-    <PreviewDialog
-      open={creating}
-      onClose={() => setCreating(false)}
-      title={`Create pipeline in ${project}`}
-      steps={[
-        `name ${project}-<tech>-<role> (e.g. ${project}-java-backend), or repo only`,
-        'stack: Java / Python / Node …; tools: SonarQube, Fortify, Nexus IQ, Grafana, Ansible …',
-        `creates repo Everesto-Inc/${project}-<name> with CI, folder <name>/ in ${project}-gitops-cd for CD`,
-        'both appear here as CI and CD pipelines',
-      ]}
-    />
-  );
+  const dialog = <CreatePipelineDialog project={project} open={creating} onClose={() => setCreating(false)} />;
+
 
   if (ci.length + repoOnly.length + cd.length === 0)
     return (
