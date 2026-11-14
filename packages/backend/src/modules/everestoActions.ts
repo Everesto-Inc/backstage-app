@@ -4,6 +4,7 @@
  *   everesto:sonarqube:setup   → SonarQube project + project-only analysis token, stored
  *                                DIRECTLY as an encrypted GitHub Actions secret in the new repo
  *                                (the token never appears in task logs, outputs or the DB)
+ *   everesto:github:secure-repo → secret scanning + push protection on a (public) repo
  *   everesto:gitops:add-app    → ensures repo <project>-gitops-cd exists, writes the app folder
  *                                (Deployment, Service, kustomization) and gives the app repo's CI a
  *                                deploy key that can write ONLY to that gitops repo (tag bump)
@@ -257,6 +258,30 @@ spec:
   });
 }
 
+function githubSecureRepo(config: Config) {
+  return createTemplateAction({
+    id: 'everesto:github:secure-repo',
+    description: 'Enable GitHub secret scanning + push protection (free for public repos)',
+    schema: {
+      input: {
+        repoUrl: z => z.string().describe('Same repoUrl as publish:github'),
+      },
+    },
+    async handler(ctx) {
+      const { owner, repo } = parseRepoUrl(ctx.input.repoUrl);
+      const token = await githubToken(config, owner);
+      const res = await gh(token, 'PATCH', `/repos/${owner}/${repo}`, {
+        security_and_analysis: {
+          secret_scanning: { status: 'enabled' },
+          secret_scanning_push_protection: { status: 'enabled' },
+        },
+      });
+      if (!res.ok) throw new Error(`GitHub: cannot enable secret scanning on ${repo} (${res.status})`);
+      ctx.logger.info(`Secret scanning + push protection enabled on ${owner}/${repo}`);
+    },
+  });
+}
+
 export const everestoActionsModule = createBackendModule({
   pluginId: 'scaffolder',
   moduleId: 'everesto-actions',
@@ -264,7 +289,7 @@ export const everestoActionsModule = createBackendModule({
     reg.registerInit({
       deps: { scaffolder: scaffolderActionsExtensionPoint, config: coreServices.rootConfig },
       async init({ scaffolder, config }) {
-        scaffolder.addActions(sonarqubeSetup(config), gitopsAddApp(config));
+        scaffolder.addActions(sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
       },
     });
   },

@@ -173,6 +173,7 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
               name,
               stack,
               description: '',
+              visibility: 'public',
               cd,
               tools: tools.filter(t => t in TEMPLATE_TOOL).map(t => TEMPLATE_TOOL[t]),
             };

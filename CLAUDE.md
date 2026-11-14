@@ -243,17 +243,19 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - Free tier: A1.Flex is at cap → apps share the existing K3s nodes; no per-tenant clusters.
   Realistic scale: a demo with 1–2 entities and a handful of small apps, not real tenants.
 - ARM (`linux/arm64`) images only.
-- GitHub Free org: private repos share a monthly Actions-minutes quota, and the free native
-  `ubuntu-24.04-arm` runners are (last checked) for **public** repos only → private tenant repos need
-  QEMU builds on `ubuntu-latest` (~5–10× slower) or a self-hosted ARM runner (no spare RAM).
-  Verify before the golden path is built; decide public vs private tenant repos.
+- GitHub Free org: private repos share 2,000 Actions min/month + 500 MB packages; public repos are free
+  and unlimited. Decided: **public by default** → native `ubuntu-24.04-arm` runner; private repos fall
+  back to `ubuntu-latest` + QEMU. No payment method on the accounts → GitHub blocks, never bills.
 - Exposed apps need a Traefik route on alb (ansible repo `files/traefik/conf.d/`).
 
 ## 11. Decisions
 
 - **One GitHub organisation for everything: `Everesto-Inc`.** All repos live there
   (`Everesto-Inc/seine-java-backend`, `Everesto-Inc/seine-gitops-cd`). Tenants are separated by
-  GitHub **teams** per space role, not by orgs. Repos are **private** by default.
+  GitHub **teams** per space role, not by orgs. Repos are **public** by default (free unlimited CI,
+  native ARM runners, public images → no pull secrets, free secret push protection); private on request
+  in the Create pipeline form. Secrets never in code: GitHub secrets / Infisical, Gitleaks in CI,
+  GitHub secret scanning + push protection enabled on every public repo.
 - Project names: river suggestions (taken ones hidden) **or** free input, validated for uniqueness.
 - Super admin = `platform-admins` group, not a space.
 - Users invited by email; login with GitHub.
