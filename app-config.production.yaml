@@ -99,7 +99,7 @@ catalog:
     - type: url
       target: https://github.com/Everesto-Inc/everesto-catalog/blob/main/all.yaml
       rules:
-        - allow: [Location, Domain, System, Component, Resource, API, Group, User]
+        - allow: [Location, Domain, System, Component, Resource, API, Group, User, Template]
     - type: file
       target: ./examples/template/template.yaml
       rules:

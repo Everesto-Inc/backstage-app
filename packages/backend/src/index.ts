@@ -8,6 +8,7 @@
 
 import { createBackend } from '@backstage/backend-defaults';
 import { permissionPolicyModule } from './modules/permissionPolicy';
+import { everestoActionsModule } from './modules/everestoActions';
 
 const backend = createBackend();
 
@@ -17,6 +18,8 @@ backend.add(import('@backstage/plugin-proxy-backend'));
 // scaffolder plugin
 backend.add(import('@backstage/plugin-scaffolder-backend'));
 backend.add(import('@backstage/plugin-scaffolder-backend-module-github'));
+// everesto:sonarqube:setup, everesto:gitops:add-app (Create pipeline template)
+backend.add(everestoActionsModule);
 backend.add(
   import('@backstage/plugin-scaffolder-backend-module-notifications'),
 );

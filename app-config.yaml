@@ -221,7 +221,7 @@ catalog:
     - type: file
       target: ../../../everesto-catalog/all.yaml
       rules:
-        - allow: [Location, Domain, System, Component, Resource, API, Group, User]
+        - allow: [Location, Domain, System, Component, Resource, API, Group, User, Template]
 
     # Local example template
     - type: file

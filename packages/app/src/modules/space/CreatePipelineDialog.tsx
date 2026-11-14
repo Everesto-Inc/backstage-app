@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -21,27 +22,28 @@ import { CI_TOOLS } from '../tools/tools';
 import { ToolLogo } from '../tools/ToolLogo';
 
 /**
- * "Create pipeline" wizard — PREVIEW: shows what the Software Template will create.
- * Later the "Create" button runs template:default/create-pipeline with these values.
+ * "Create pipeline" wizard: pick name, stack (CI), deployment (CD) and tools, then
+ * "Continue" opens template:default/create-pipeline pre-filled (review → Create).
+ * Supported today: Python, Java · ArgoCD / no deployment. Others are marked "coming soon".
  */
 
-type Stack = { id: string; name: string; hint: string; logo?: string; build: string };
+type Stack = { id: string; name: string; hint: string; logo?: string; build: string; soon?: boolean };
 // CI stacks — each maps to a skeleton + CI workflow in the template
 export const STACKS: Stack[] = [
   { id: 'java', name: 'Java', hint: 'Spring Boot · Maven/Gradle', logo: 'openjdk', build: 'mvn verify' },
   { id: 'python', name: 'Python', hint: 'FastAPI · pytest', logo: 'python', build: 'pytest' },
-  { id: 'go', name: 'Go', hint: 'net/http · go test', logo: 'go', build: 'go test ./...' },
-  { id: 'rust', name: 'Rust', hint: 'axum · cargo test', logo: 'rust', build: 'cargo test' },
-  { id: 'node', name: 'Node.js', hint: 'TypeScript · Express', logo: 'nodedotjs', build: 'npm test' },
-  { id: 'react', name: 'React', hint: 'frontend · Vite', logo: 'react', build: 'npm run build' },
-  { id: 'dotnet', name: '.NET', hint: 'ASP.NET Core', logo: 'dotnet', build: 'dotnet test' },
-  { id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage', build: '' },
+  { soon: true, id: 'go', name: 'Go', hint: 'net/http · go test', logo: 'go', build: 'go test ./...' },
+  { soon: true, id: 'rust', name: 'Rust', hint: 'axum · cargo test', logo: 'rust', build: 'cargo test' },
+  { soon: true, id: 'node', name: 'Node.js', hint: 'TypeScript · Express', logo: 'nodedotjs', build: 'npm test' },
+  { soon: true, id: 'react', name: 'React', hint: 'frontend · Vite', logo: 'react', build: 'npm run build' },
+  { soon: true, id: 'dotnet', name: '.NET', hint: 'ASP.NET Core', logo: 'dotnet', build: 'dotnet test' },
+  { soon: true, id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage', build: '' },
 ];
 
-type Cd = { id: string; name: string; hint: string; logo?: string };
+type Cd = { id: string; name: string; hint: string; logo?: string; soon?: boolean };
 export const CD_OPTIONS: Cd[] = [
   { id: 'argocd', name: 'ArgoCD (GitOps)', hint: 'container → K3s namespace, folder in <project>-gitops-cd', logo: 'argo' },
-  { id: 'ansible', name: 'Ansible (AWX)', hint: 'deploy to VMs via an AWX job template', logo: 'ansible' },
+  { soon: true, id: 'ansible', name: 'Ansible (AWX)', hint: 'deploy to VMs via an AWX job template', logo: 'ansible' },
   { id: 'none', name: 'No deployment', hint: 'build only (library, tool, storage)' },
 ];
 
@@ -75,10 +77,20 @@ const Mark = ({ slug, size = 32, fallback }: { slug?: string; size?: number; fal
 // Free pipeline tools ticked by default; enterprise / project tools opt-in
 const DEFAULT_ON = ['code', 'ci', 'secrets-scan', 'semgrep', 'trivy', 'quality', 'registry', 'dependabot'];
 
+// Wizard tool id → template tool id (template:default/create-pipeline). Others: coming soon.
+const TEMPLATE_TOOL: Record<string, string> = {
+  'secrets-scan': 'gitleaks',
+  semgrep: 'semgrep',
+  trivy: 'trivy',
+  quality: 'sonarqube',
+  dependabot: 'dependabot',
+};
+
 export const CreatePipelineDialog = ({ project, open, onClose }: { project: string; open: boolean; onClose: () => void }) => {
   const classes = useStyles();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [stack, setStack] = useState('java');
+  const [stack, setStack] = useState('python');
   const [cd, setCd] = useState('argocd');
   const [tools, setTools] = useState<string[]>(DEFAULT_ON);
   const repoOnly = stack === 'repo';
@@ -103,9 +115,9 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
         <div className={classes.step}>2 · Application (CI)</div>
         <div className={classes.grid}>
           {STACKS.map(x => (
-            <button key={x.id} type="button" className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); if (x.id === 'repo') setCd('none'); }}>
+            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); if (x.id === 'repo') setCd('none'); }}>
               <Mark slug={x.logo} fallback={<FolderIcon style={{ fontSize: 18 }} />} />
-              <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.hint}</div></span>
+              <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.soon ? 'coming soon' : x.hint}</div></span>
             </button>
           ))}
         </div>
@@ -113,9 +125,9 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
         <div className={classes.step}>3 · Deployment (CD)</div>
         <div className={classes.grid}>
           {CD_OPTIONS.map(x => (
-            <button key={x.id} type="button" className={`${classes.option} ${cd === x.id ? classes.selected : ''}`} onClick={() => setCd(x.id)}>
+            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${cd === x.id ? classes.selected : ''}`} onClick={() => setCd(x.id)}>
               <Mark slug={x.logo} fallback={<BlockIcon style={{ fontSize: 18 }} />} />
-              <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.hint.replace('<project>', project)}</div></span>
+              <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.soon ? 'coming soon' : x.hint.replace('<project>', project)}</div></span>
             </button>
           ))}
         </div>
@@ -127,7 +139,8 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
               {ciTools.map(t => (
                 <FormControlLabel
                   key={t.id}
-                  control={<Checkbox color="primary" size="small" checked={tools.includes(t.id)} onChange={e => setTools(e.target.checked ? [...tools, t.id] : tools.filter(x => x !== t.id))} />}
+                  disabled={!(t.id in TEMPLATE_TOOL) && t.id !== 'registry'}
+                  control={<Checkbox color="primary" size="small" checked={tools.includes(t.id) && (t.id in TEMPLATE_TOOL || t.id === 'registry')} onChange={e => setTools(e.target.checked ? [...tools, t.id] : tools.filter(x => x !== t.id))} />}
                   label={<Box display="flex" alignItems="center" style={{ gap: 8 }}><ToolLogo tool={t} size={24} />{t.name}{t.licence === 'enterprise' && <Typography variant="caption" color="textSecondary">enterprise · needs connection</Typography>}</Box>}
                 />
               ))}
@@ -146,10 +159,28 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
       </DialogContent>
       <DialogActions>
         <Typography variant="caption" color="textSecondary" style={{ marginRight: 'auto', paddingLeft: 16 }}>
-          Preview — the template that creates this comes next
+          Next: review in the template form, then Create
         </Typography>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" color="primary" disableElevation disabled>Create</Button>
+        <Button
+          variant="contained"
+          color="primary"
+          disableElevation
+          disabled={!name || !valid || s.soon || CD_OPTIONS.find(x => x.id === cd)!.soon}
+          onClick={() => {
+            const formData = {
+              project: `system:default/${project}`,
+              name,
+              stack,
+              description: '',
+              cd,
+              tools: tools.filter(t => t in TEMPLATE_TOOL).map(t => TEMPLATE_TOOL[t]),
+            };
+            navigate(`/create/templates/default/create-pipeline?formData=${encodeURIComponent(JSON.stringify(formData))}`);
+          }}
+        >
+          Continue
+        </Button>
       </DialogActions>
     </Dialog>
   );
