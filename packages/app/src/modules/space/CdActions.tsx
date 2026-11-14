@@ -225,9 +225,9 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
                 </>
               )}
             </Box>
-            {roles.owner ? (
+            {roles.maintainer ? (
               <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
-                <Typography variant="subtitle2" style={{ color: STATUS.critical }}>Delete deployment</Typography>
+                <Typography variant="subtitle2" style={{ color: STATUS.critical }}>Delete deployment (dev + prod)</Typography>
                 <Typography variant="body2" color="textSecondary" paragraph>
                   Deletes the GitHub repo <b>{gitops}</b>, its catalog entry, the Infisical project <b>{gitops}</b> (all its secrets)
                   and the identity eso-{repo}. Kept: the CI application <b>{repo}</b>, its images, the cluster secret
@@ -241,7 +241,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
                 </Box>
               </Box>
             ) : (
-              <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>Only owners of {project} can delete deployments.</Typography>
+              <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>Only owners and maintainers of {project} can delete deployments.</Typography>
             )}
           </>
         )}

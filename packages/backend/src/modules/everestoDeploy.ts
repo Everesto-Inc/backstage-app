@@ -83,6 +83,9 @@ kind: Namespace
 metadata:
   name: ${ns(project, env)}
   labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
+  annotations:
+    # shared by every app of ${project}: deleting ONE app must never delete the namespace
+    argocd.argoproj.io/sync-options: Delete=false
 `;
 
 const service = (repo: string, port: number) => `apiVersion: v1
@@ -458,7 +461,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
 export async function deleteDeployment(config: Config, repo: string, refs: string[], who: string, unregister: (name: string) => Promise<void>) {
   const token = await githubToken(config, OWNER);
   const { info, project } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners'])) throw err(403, `only owners of ${project} can delete deployments`);
+  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can delete deployments`);
   const gitops = `${repo}-gitops`;
   const done: string[] = [];
   const docs = info.split(/\n---\n/);
