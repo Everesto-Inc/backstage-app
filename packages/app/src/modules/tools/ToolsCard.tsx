@@ -20,7 +20,8 @@ import { STATUS } from './charts';
 import { ToolLogo } from './ToolLogo';
 import { EditPipelineDialog, SWITCHABLE } from '../space/EditPipelineDialog';
 import { useDemoData } from '../space/demo';
-import { CdActions } from '../space/CdActions';
+import { CdActions, EditDeploymentDialog } from '../space/CdActions';
+import EditIcon from '@material-ui/icons/Edit';
 import { insightsTarget, useInsights } from '../space/insights';
 
 const useStyles = makeStyles(theme => ({
@@ -79,6 +80,7 @@ const CdToolsCard = () => {
   const project = String(entity.spec?.system ?? '');
   const repo = insightsTarget(entity).repo;
   const tool = (id: string) => CD_TOOLS.find(t => t.id === id)!;
+  const [editing, setEditing] = useState(false);
   const rows: { tool: Tool; label: string; note: string; on: boolean }[] = [
     { tool: tool('cd'), label: 'Active', note: `apps ${repo}-dev${d?.envs?.prod ? ` / ${repo}-prod` : ''} · manual sync`, on: true },
     { tool: tool('config'), label: 'Not used', note: 'excluded while ArgoCD deploys this app (one deployment tool per app)', on: false },
@@ -86,7 +88,9 @@ const CdToolsCard = () => {
     { tool: tool('monitoring'), label: 'Coming later', note: 'dashboards and alerts', on: false },
   ];
   return (
-    <InfoCard title="Tools" subheader="ArgoCD + Infisical · every deployment">
+    <InfoCard title="Tools" subheader="ArgoCD + Infisical · every deployment"
+      action={<Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)} style={{ margin: 8 }}>Edit</Button>}>
+      {editing && <EditDeploymentDialog repo={repo} project={project} hasProd={!!d?.envs?.prod} onClose={() => setEditing(false)} />}
       {rows.map(r => (
         <div key={r.tool.id} className={classes.row} style={r.on ? undefined : { opacity: 0.55 }}>
           <ToolLogo tool={r.tool} />
@@ -124,11 +128,16 @@ const CiToolsCard = () => {
   const ok = states.filter(s => s.state.kind === 'connected').length;
   const err = states.filter(s => s.state.kind === 'error').length;
 
+  const [editing, setEditing] = useState(false);
   return (
     <InfoCard
       title="Tools"
       subheader={`${ok} connected · ${err} error · ${TOOLS.length - ok - err} not added`}
+      action={!demo && entity.kind === 'Component'
+        ? <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)} style={{ margin: 8 }}>Edit</Button>
+        : undefined}
     >
+      {editing && <EditPipelineDialog entity={entity} onClose={() => setEditing(false)} />}
       {states.map(({ tool, state }) => (
         <div key={tool.id} className={classes.row}>
           <ToolLogo tool={tool} />

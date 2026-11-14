@@ -15,6 +15,7 @@ import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
 import { CreateDeploymentDialog } from './CreateDeploymentDialog';
 import { EditPipelineDialog } from './EditPipelineDialog';
+import { EditDeploymentDialog } from './CdActions';
 import { days, metricsFor } from './metrics';
 import { useDemoData } from './demo';
 import { RealCdMetrics, RealCiMetrics, RealSummary } from './RealMetrics';
@@ -130,9 +131,7 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
           <Typography variant="body2" color="textSecondary">{e.metadata.description ?? e.metadata.name}</Typography>
         </Box>
         <PipelineFlow entity={e} tools={tools} size={48} labels />
-        {(demo || kind !== 'cd')
-          ? <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
-          : <span /> /* real CD: Deploy / Promote / Delete deployment are on the card */}
+        <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
       </div>
 
       {!demo && kind === 'ci' && <RealCiMetrics entity={e} />}
@@ -222,8 +221,11 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
         </div>
       )}
 
-      {editing && !demo && kind === 'ci' && <EditPipelineDialog entity={e} onClose={() => setEditing(false)} />}
-      {editing && (demo || kind !== 'ci') && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} isOwner={isOwner} />}
+      {editing && !demo && kind !== 'cd' && <EditPipelineDialog entity={e} repoOnly={kind === 'repo'} onClose={() => setEditing(false)} />}
+      {editing && !demo && kind === 'cd' && (
+        <EditDeploymentDialog repo={e.metadata.name.replace(/-gitops$/, '')} project={project} hasProd={false} onClose={() => setEditing(false)} />
+      )}
+      {editing && demo && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} isOwner={isOwner} />}
     </div>
   );
 };

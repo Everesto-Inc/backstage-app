@@ -8,7 +8,7 @@ import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { ago } from './insights';
 
-/** Real CD actions on a deployment card: Deploy (dev), Promote to prod, Delete deployment. */
+/** Real CD actions on a deployment card: Deploy (dev), Promote to prod. Delete is in EditDeploymentDialog. */
 type Build = { tag: string; at: string; title: string; url: string };
 
 const useEveresto = () => {
@@ -60,7 +60,6 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
       <Button size="small" variant="outlined" color="primary" disabled={!devTag || devTag === prodTag} onClick={() => setDialog('promote')}>
         Promote {devTag ?? ''} to prod
       </Button>
-      {roles.owner && <Button size="small" style={{ color: STATUS.critical }} onClick={() => setDialog('delete')}>Delete deployment</Button>}
 
       <Dialog open={!!dialog} onClose={busy ? undefined : close} maxWidth="sm" fullWidth>
         <DialogTitle>
@@ -157,5 +156,72 @@ export const RunBuild = ({ repo, project }: { repo: string; project: string }) =
         alertApi.post({ message: `Build of ${repo} started on main — image appears in ~3 min`, severity: 'success', display: 'transient' });
       } catch (e: any) { alertApi.post({ message: `Run build failed: ${e.message}`, severity: 'error' }); } finally { setBusy(false); }
     }}>Run build</Button>
+  );
+};
+
+/**
+ * Edit deployment — same pattern as Edit pipeline: the tools (fixed rules) + Delete (owners, typed confirmation).
+ * ArgoCD deploys (Ansible excluded while ArgoCD is active), Infisical always on, Grafana later.
+ */
+export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDeleted }: {
+  repo: string; project: string; hasProd: boolean; onClose: () => void; onDeleted?: () => void;
+}) => {
+  const call = useEveresto();
+  const alertApi = useApi(alertApiRef);
+  const roles = useRoles(project);
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<string[] | undefined>();
+  const gitops = `${repo}-gitops`;
+  const rows: [string, string, boolean][] = [
+    ['ArgoCD', `active — ${repo}-dev${hasProd ? ` / ${repo}-prod` : ''}, manual sync`, true],
+    ['Ansible', 'not used — excluded while ArgoCD deploys this app', false],
+    ['Infisical', `always on — project ${gitops} → ESO → Secret ${repo}`, true],
+    ['Grafana', 'coming later', false],
+  ];
+  const del = async () => {
+    setBusy(true);
+    try {
+      const r = await call('POST', `/apps/${repo}/deployment/delete`, { confirm: gitops });
+      setOut([...r.done, ...r.warn.map((w: string) => `⚠ ${w}`)]);
+      onDeleted?.();
+    } catch (e: any) { alertApi.post({ message: `Delete failed: ${e.message}`, severity: 'error' }); } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>{out ? `Deleted · ${gitops}` : `Edit deployment · ${repo}`}</DialogTitle>
+      <DialogContent>
+        {out ? (
+          <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>{out.map(l => <li key={l}>{l}</li>)}</Box>
+        ) : (
+          <>
+            {rows.map(([name, note, on]) => (
+              <Box key={name} display="flex" alignItems="baseline" style={{ gap: 12, padding: '6px 0', opacity: on ? 1 : 0.55 }}>
+                <b style={{ width: 80 }}>{name}</b>
+                <Typography variant="body2" color="textSecondary">{note}</Typography>
+              </Box>
+            ))}
+            {roles.owner ? (
+              <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
+                <Typography variant="subtitle2" style={{ color: STATUS.critical }}>Delete deployment</Typography>
+                <Typography variant="body2" color="textSecondary" paragraph>
+                  Deletes the GitHub repo <b>{gitops}</b> and its catalog entry. The CI application <b>{repo}</b> and its images stay;
+                  the Infisical project <b>{gitops}</b> is kept. You get the kubectl command that removes the running app.
+                  Type <b>{gitops}</b> to confirm.
+                </Typography>
+                <Box display="flex" style={{ gap: 12 }}>
+                  <TextField size="small" variant="outlined" placeholder={gitops} value={confirm} disabled={busy} onChange={e => setConfirm(e.target.value)} style={{ flex: 1 }} />
+                  <Button variant="contained" disableElevation disabled={busy || confirm !== gitops}
+                    style={confirm === gitops ? { background: STATUS.critical, color: '#fff' } : undefined} onClick={del}>Delete</Button>
+                </Box>
+              </Box>
+            ) : (
+              <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>Only owners of {project} can delete deployments.</Typography>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions><Button onClick={onClose} disabled={busy}>Close</Button></DialogActions>
+    </Dialog>
   );
 };

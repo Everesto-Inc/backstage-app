@@ -24,7 +24,7 @@ export const SWITCHABLE: Record<string, 'sonarqube' | 'semgrep' | 'dependabot'> 
 };
 const ALWAYS_ON = ['secrets-scan', 'trivy', 'registry'];
 
-export const EditPipelineDialog = ({ entity, onClose, preset }: { entity: Entity; onClose: () => void; preset?: { id: string; on: boolean } }) => {
+export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { entity: Entity; onClose: () => void; preset?: { id: string; on: boolean }; repoOnly?: boolean }) => {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   const catalogApi = useApi(catalogApiRef);
@@ -40,7 +40,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset }: { entity: Entity
   const canEdit = isPlatform || refs.includes(`group:default/${project}-owners`) || refs.includes(`group:default/${project}-maintainers`);
   const canDelete = isPlatform || refs.includes(`group:default/${project}-owners`);
 
-  const tools = TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));
+  // repository only (no CI): nothing to switch, just Delete
+  const tools = repoOnly ? [] : TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));
   const initial = Object.fromEntries(tools.map(t => [t.id, toolState(entity, t).kind !== 'missing']));
   const [checked, setChecked] = useState<Record<string, boolean>>(preset ? { ...initial, [preset.id]: preset.on } : initial);
   const [busy, setBusy] = useState(false);
@@ -104,7 +105,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset }: { entity: Entity
 
   return (
     <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Edit pipeline · {repo}</DialogTitle>
+      <DialogTitle>{repoOnly ? 'Edit repository' : 'Edit pipeline'} · {repo}</DialogTitle>
       <DialogContent>
         {tools.map(t => {
           const locked = ALWAYS_ON.includes(t.id) || !canEdit;
@@ -122,7 +123,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset }: { entity: Entity
             </Box>
           );
         })}
-        {!canEdit && <Typography variant="body2" color="textSecondary">Only owners and maintainers of {project} can change tools.</Typography>}
+        {repoOnly && <Typography variant="body2" color="textSecondary">Repository only — no CI pipeline, no tools.</Typography>}
+        {!canEdit && !repoOnly && <Typography variant="body2" color="textSecondary">Only owners and maintainers of {project} can change tools.</Typography>}
         {changes.length > 0 && (
           <Box mt={2}>
             <Typography variant="body2" paragraph style={{ marginBottom: 4 }}>Saving will:</Typography>
