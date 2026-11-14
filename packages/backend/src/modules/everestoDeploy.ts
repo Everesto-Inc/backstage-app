@@ -641,7 +641,7 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   return {
     done,
     warn: [
-      `remove the running apps (Backstage has no cluster access): sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found`,
+      `run on the control plane (Backstage has no cluster access) — removes dev + prod pods and the secret stores: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found`,
       ...inf.warn,
       `kept: images in ghcr.io and the cluster secret infisical-${repo}-auth (namespace external-secrets)`,
     ],
