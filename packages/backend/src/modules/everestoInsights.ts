@@ -22,10 +22,10 @@ type Step = { name: string; conclusion: string | null };
 const SCANNERS: Record<string, RegExp> = {
   gitleaks: /gitleaks/i,
   semgrep: /semgrep/i,
-  trivyDeps: /vulnerable dependencies|trivy\)?$/i,
+  trivyDeps: /vulnerable dependencies/i,
   trivyImage: /scan image/i,
-  sonarqube: /quality gate|sonarqube\)?$/i,
-  tests: /^tests|build \+ tests/i,
+  sonarqube: /quality gate/i,
+  tests: /tests/i,
 };
 
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);
@@ -62,7 +62,7 @@ async function sonarMeasures(config: Config, key: string) {
   };
 }
 
-async function pipelineInsights(config: Config, repo: string, project?: string, app?: string) {
+async function pipelineInsights(config: Config, repo: string, project?: string, app?: string, sonar = true) {
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
 
@@ -97,7 +97,8 @@ async function pipelineInsights(config: Config, repo: string, project?: string, 
   let failedStep: string | undefined;
   if (lastMain) {
     const jobs = await gh(token, 'GET', `/repos/${OWNER}/${repo}/actions/runs/${lastMain.id}/jobs`);
-    const steps: Step[] = jobs.json?.jobs?.[0]?.steps ?? [];
+    // all jobs: Loop guard job (Gitleaks, Trivy deps) + ci job (tests, Semgrep, Sonar, image)
+    const steps: Step[] = ((jobs.json?.jobs ?? []) as any[]).flatMap(j => j.steps ?? []);
     for (const [k, re] of Object.entries(SCANNERS)) {
       const st = steps.find(s => re.test(s.name));
       if (st) scanners[k] = st.conclusion; // success | failure | skipped | null(not reached)
@@ -126,7 +127,8 @@ async function pipelineInsights(config: Config, repo: string, project?: string, 
     failedStep,
     scanners,
     commitsPerDay: lastDays().map(d => ({ day: d, count: perDay[d] })),
-    sonar: await sonarMeasures(config, repo).catch(e => ({ exists: true, error: String(e) })),
+    // sonar=false: SonarQube switched off for this app → never show (old) measures
+    sonar: sonar ? await sonarMeasures(config, repo).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
     lastDeploy,
   };
 }
@@ -151,14 +153,15 @@ export const everestoInsightsPlugin = createBackendPlugin({
           }
           const project = typeof req.query.project === 'string' && /^[a-z0-9-]{1,63}$/.test(req.query.project) ? req.query.project : undefined;
           const app = typeof req.query.app === 'string' && /^[a-z0-9-]{1,63}$/.test(req.query.app) ? req.query.app : undefined;
-          const key = `${repo}|${project}|${app}`;
+          const sonar = req.query.sonar !== '0';
+          const key = `${repo}|${project}|${app}|${sonar}`;
           const hit = cache.get(key);
           if (hit && Date.now() - hit.at < TTL_MS) {
             res.json(hit.data);
             return;
           }
           try {
-            const data = await pipelineInsights(config, repo, project, app);
+            const data = await pipelineInsights(config, repo, project, app, sonar);
             cache.set(key, { at: Date.now(), data });
             res.json(data);
           } catch (e) {
