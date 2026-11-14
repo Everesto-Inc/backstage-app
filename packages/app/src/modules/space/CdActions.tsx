@@ -8,6 +8,23 @@ import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { ago } from './insights';
 
+export type SetupStep = { n: number; env: 'once' | 'dev' | 'prod'; title: string; cmd: string; creates: string[]; explain: string };
+
+/** Ordered control-plane commands with what each one creates — same content as the Tech Docs runbook. */
+export const SetupSteps = ({ steps }: { steps: SetupStep[] }) => (
+  <>
+    {steps.map(x => (
+      <Box key={x.n} mt={2}>
+        <CmdBox title={`${x.n}. ${x.title}`} cmd={x.cmd} />
+        <Typography variant="body2" color="textSecondary" style={{ marginTop: 4 }}>{x.explain}</Typography>
+        {x.creates.length > 0 && (
+          <Typography variant="caption" color="textSecondary" component="div">Creates: {x.creates.join(' · ')}</Typography>
+        )}
+      </Box>
+    ))}
+  </>
+);
+
 /** Real CD actions on a deployment card: Deploy (dev), Promote to prod. Delete is in EditDeploymentDialog. */
 type Build = { tag: string; at: string; title: string; url: string };
 
@@ -174,7 +191,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
   const [out, setOut] = useState<string[] | undefined>();
   const [esoCmd, setEsoCmd] = useState<string | undefined>();
   const gitops = `${repo}-gitops`;
-  const { value: setup } = useAsync(async (): Promise<{ title: string; cmd: string }[]> =>
+  const { value: setup } = useAsync(async (): Promise<SetupStep[]> =>
     (await call('GET', `/apps/${repo}/deployment/setup`)).commands, [repo]);
   const newLogin = async () => {
     setBusy(true);
@@ -213,7 +230,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
             <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
               <Typography variant="subtitle2">Setup commands (control plane) — also in the Tech Docs tab of {gitops}</Typography>
               <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never stored — use “New ESO login” to get the login command again.</Typography>
-              {(setup ?? []).map(c => <CmdBox key={c.title} title={c.title} cmd={c.cmd} />)}
+              <SetupSteps steps={setup ?? []} />
               <Box mt={2} display="flex" alignItems="center" style={{ gap: 12 }}>
                 <Button size="small" variant="outlined" disabled={busy || !roles.maintainer} onClick={newLogin}>New ESO login</Button>
                 <Typography variant="caption" color="textSecondary">creates a new client secret for eso-{repo} in Infisical and shows the command once</Typography>

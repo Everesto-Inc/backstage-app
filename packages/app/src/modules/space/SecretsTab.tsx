@@ -9,6 +9,7 @@ import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 import useAsync from 'react-use/esm/useAsync';
 import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
+import { SetupStep, SetupSteps } from './CdActions';
 import { ago, insightsTarget } from './insights';
 
 /**
@@ -68,6 +69,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
   });
   const newLogin = () => run(async () => setEsoCmd((await call('POST', '/deployment/eso-login')).cmd));
 
+  const { value: steps = [] } = useAsync(async (): Promise<SetupStep[]> => (await call('GET', '/deployment/setup')).commands, [repo]);
   const d = list.value;
   const canEdit = !!d?.canEdit;
   const row = { display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: '1px solid rgba(128,128,128,0.15)' } as const;
@@ -117,6 +119,14 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
 
       <Box mt={2}>
         <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${project}-${env}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
+      </Box>
+
+      <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
+        <Typography variant="subtitle2">Setup commands · {env} (control plane, <code>ssho control-plane</code>) — in order, safe to re-run</Typography>
+        <Typography variant="caption" color="textSecondary">
+          Use them whenever the app does not exist yet in {project}-{env}. Explained in detail in the Tech Docs tab of {repo}-gitops.
+        </Typography>
+        <SetupSteps steps={steps.filter(x => x.env === 'once' || x.env === env)} />
       </Box>
 
       {isMaintainer && (

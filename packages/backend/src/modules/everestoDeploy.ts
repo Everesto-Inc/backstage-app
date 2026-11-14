@@ -272,54 +272,182 @@ export async function builds(config: Config, repo: string) {
 
 // ---------- runbook (TechDocs page of <repo>-gitops + "Setup commands" in Backstage) — NO secret values ----------
 
-export const setupCommands = (repo: string, project: string, hasProd: boolean) => {
-  const gitops = `${repo}-gitops`;
-  const raw = `https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd`;
-  const c: { title: string; cmd: string }[] = [
-    { title: '1. Tenant node label (once per cluster)', cmd: 'sudo kubectl label node dev-k3s-argocd everesto.live/pool=tenants --overwrite' },
-    {
-      title: `2. Infisical login for ESO (identity eso-${repo}) — the secret is shown only in Backstage: Edit deployment → "New ESO login"`,
-      cmd: `sudo kubectl -n external-secrets create secret generic infisical-${repo}-auth \\\n  --from-literal=clientId='<CLIENT_ID>' --from-literal=clientSecret='<CLIENT_SECRET>'`,
-    },
-    { title: '3. Secret store (dev)', cmd: `sudo kubectl apply -f ${raw}/secret-stores.yaml` },
-    { title: `4. ArgoCD project ${project} + app ${repo}-dev`, cmd: `sudo kubectl apply -f ${raw}/argocd.yaml` },
-    { title: `5. Deploy: ArgoCD → ${repo}-dev → Sync`, cmd: `# or: sudo kubectl -n argocd patch application ${repo}-dev --type merge -p '{"operation":{"sync":{}}}'` },
-  ];
-  c.push({
-    title: `6. Prod — ONLY after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}: secret store + app ${repo}-prod, then Sync ${repo}-prod`,
-    cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml\nsudo kubectl -n argocd patch application ${repo}-prod --type merge -p '{"operation":{"sync":{}}}'\nsudo kubectl -n ${ns(project, 'prod')} get pods,externalsecret,secret`,
-  });
-  c.push({ title: 'Check', cmd: `sudo kubectl -n argocd get applications | grep ${repo}\nsudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` });
-  return c;
+export type SetupStep = {
+  n: number;
+  env: 'once' | 'dev' | 'prod';
+  title: string;
+  cmd: string;
+  creates: string[]; // "Kind name (where)"
+  explain: string;
 };
 
-const runbook = (repo: string, project: string, hasProd: boolean) => `# ${repo}-gitops — runbook
+/** Every control-plane command of a deployment, in order, explained. Source for: Secrets tab, Edit deployment, Tech Docs. */
+export const setupCommands = (repo: string, project: string, hasProd: boolean): SetupStep[] => {
+  const gitops = `${repo}-gitops`;
+  const raw = `https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd`;
+  const dev = ns(project, 'dev');
+  const prod = ns(project, 'prod');
+  const sync = (e: Env) => `sudo kubectl -n argocd patch application ${repo}-${e} --type merge -p '{"operation":{"sync":{}}}'`;
+  const check = (e: Env) => `sudo kubectl -n argocd get application ${repo}-${e}\nsudo kubectl -n ${ns(project, e)} get pods,externalsecret,secret`;
+  return [
+    {
+      n: 1, env: 'once', title: 'Tenant node label (once per cluster)',
+      cmd: 'sudo kubectl label node dev-k3s-argocd everesto.live/pool=tenants --overwrite',
+      creates: ['label everesto.live/pool=tenants (node dev-k3s-argocd)'],
+      explain: 'Every tenant Deployment has nodeSelector everesto.live/pool=tenants. Without this label the pods stay Pending. Already done if any other app runs.',
+    },
+    {
+      n: 2, env: 'once', title: `Infisical login for ESO (identity eso-${repo})`,
+      cmd: `sudo kubectl -n external-secrets create secret generic infisical-${repo}-auth \\\n  --from-literal=clientId='<CLIENT_ID>' --from-literal=clientSecret='<CLIENT_SECRET>'`,
+      creates: [`Secret infisical-${repo}-auth (ns external-secrets)`],
+      explain: `The login ESO uses to READ the Infisical project ${gitops} (dev and prod). Real values are never stored: Backstage → ${gitops} → Secrets → "New ESO login" shows this command with them, once. Lives in external-secrets, which tenants cannot read.`,
+    },
+    {
+      n: 3, env: 'dev', title: 'Secret store for dev',
+      cmd: `sudo kubectl apply -f ${raw}/secret-stores.yaml`,
+      creates: [`ClusterSecretStore infisical-${repo}-dev (cluster-wide)`],
+      explain: `Tells ESO where dev secrets come from: Infisical project ${gitops}, environment dev, path /, using the login of step 2. Its condition allows ONLY namespace ${dev} to use it.`,
+    },
+    {
+      n: 4, env: 'dev', title: `ArgoCD project ${project} + application ${repo}-dev`,
+      cmd: `sudo kubectl apply -f ${raw}/argocd.yaml`,
+      creates: [`AppProject ${project} (ns argocd)`, `Application ${repo}-dev (ns argocd)`],
+      explain: `AppProject ${project} = guard rails: only *-gitops repos, only namespaces ${dev} / ${prod}. Application ${repo}-dev = an instruction to ArgoCD: "take folder apps/dev of ${gitops} and put it into ${dev}, sync manually". It creates no pods yet — it appears as a tile in ArgoCD.`,
+    },
+    {
+      n: 5, env: 'dev', title: `Sync ${repo}-dev (or ArgoCD UI → Sync)`,
+      cmd: sync('dev'),
+      creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`],
+      explain: `ArgoCD applies everything in apps/dev: the namespace first, then Deployment (image + tag, port, /health probes, memory), Service (port 80 → container port) and ExternalSecret. ESO sees the ExternalSecret and creates Secret ${repo} from Infisical dev; the pod gets every key as an environment variable. Run again after every "Deploy to dev".`,
+    },
+    { n: 6, env: 'dev', title: 'Check dev', cmd: check('dev'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
+    {
+      n: 7, env: 'prod', title: `Prod secret store + application ${repo}-prod — only after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}`,
+      cmd: `sudo kubectl apply -f ${raw}/argocd-prod.yaml`,
+      creates: [`ClusterSecretStore infisical-${repo}-prod (cluster-wide)`, `Application ${repo}-prod (ns argocd)`],
+      explain: `Same as steps 3 + 4 for prod: the store reads Infisical environment prod and only namespace ${prod} may use it; the Application takes apps/prod into ${prod}. The file exists only after the first promote PR is merged (404 before). Set the real prod secrets in the Secrets tab before syncing.`,
+    },
+    {
+      n: 8, env: 'prod', title: `Sync ${repo}-prod (or ArgoCD UI → Sync)`,
+      cmd: sync('prod'),
+      creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`],
+      explain: `Like step 5, for prod. Run again after every merged "Promote to prod" PR.`,
+    },
+    { n: 9, env: 'prod', title: 'Check prod', cmd: check('prod'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
+  ];
+};
 
-CD of [${repo}](https://github.com/${OWNER}/${repo}), DevOps space **${project}**. Managed by Backstage.
+/** After a secret changed (only when the app already runs in that namespace). */
+export const applySecretsCmd = (repo: string, project: string, env: Env) =>
+  `sudo kubectl -n ${ns(project, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
+  `sudo kubectl -n ${ns(project, env)} rollout restart deployment ${repo}`;
 
-| env | folder | namespace | ArgoCD app | how a new image arrives |
-|---|---|---|---|---|
-| dev | \`apps/dev\` | \`${ns(project, 'dev')}\` | \`${repo}-dev\` | Backstage → **Deploy to dev** (pick a build) → **Sync** |
-| prod | \`apps/prod\` | \`${ns(project, 'prod')}\` | \`${repo}-prod\` | Backstage → **Promote to prod** (PR) → merge → **Sync** |
 
-Secrets: Infisical project **${repo}-gitops** (env dev / prod) → ESO → Kubernetes Secret \`${repo}\`. Never in this repo.
+const runbook = (repo: string, project: string, hasProd: boolean) => {
+  const gitops = `${repo}-gitops`;
+  const dev = ns(project, 'dev');
+  const prod = ns(project, 'prod');
+  const steps = setupCommands(repo, project, hasProd);
+  const section = (env: SetupStep['env']) => steps.filter(x => x.env === env).map(x => `### ${x.n}. ${x.title}
 
-## Setup on the control plane (\`ssho control-plane\`)
+\`\`\`bash
+${x.cmd}
+\`\`\`
 
-Backstage has no cluster access — an admin runs these once. Re-running them is safe.
+${x.explain}
+${x.creates.length ? `\n**Creates:**\n\n${x.creates.map(c => `- ${c}`).join('\n')}\n` : ''}`).join('\n');
+  return `# ${gitops}
 
-${setupCommands(repo, project, hasProd).map(c => `### ${c.title}\n\n\`\`\`bash\n${c.cmd.replace(/\\n/g, '\n')}\n\`\`\`\n`).join('\n')}
-## Flow
+Deployment (CD) of [${repo}](https://github.com/${OWNER}/${repo}), DevOps space **${project}**, managed by Backstage.
+Backstage has **no cluster access**: it writes git and Infisical; an admin runs the commands below on the control plane
+(\`ssho control-plane\`). Every command is safe to run again.
+
+## What runs where
 
 \`\`\`mermaid
-flowchart LR
-  CI[${repo} CI: build on main] --> IMG[(ghcr.io image sha-…)]
-  IMG -->|Deploy to dev| DEV[apps/dev] -->|Sync| NSD[${ns(project, 'dev')}]
-  DEV -->|Promote PR| PROD[apps/prod] -->|Sync| NSP[${ns(project, 'prod')}]
-  INF[(Infisical ${repo}-gitops)] -->|ESO| NSD
-  INF -->|ESO| NSP
+flowchart TB
+  subgraph git[GitHub ${gitops}]
+    D[apps/dev]
+    P[apps/prod]
+    A[argocd/*.yaml]
+  end
+  subgraph inf[Infisical project ${gitops}]
+    ID[(env dev)]
+    IP[(env prod)]
+  end
+  subgraph argo[ns argocd]
+    AD[Application ${repo}-dev]
+    AP[Application ${repo}-prod]
+  end
+  subgraph es[ns external-secrets]
+    L[Secret infisical-${repo}-auth]
+  end
+  SD{{ClusterSecretStore ${repo}-dev}}
+  SP{{ClusterSecretStore ${repo}-prod}}
+  subgraph nd[ns ${dev}]
+    PD[pod ${repo}]
+  end
+  subgraph np[ns ${prod}]
+    PP[pod ${repo}]
+  end
+  A -. kubectl apply .-> AD & AP & SD & SP
+  D -->|Sync| AD --> nd
+  P -->|Sync| AP --> np
+  L --> SD & SP
+  ID --> SD -->|ESO: Secret ${repo}| nd
+  IP --> SP -->|ESO: Secret ${repo}| np
 \`\`\`
+
+| Object | Kind | Namespace | Created by |
+|---|---|---|---|
+| \`infisical-${repo}-auth\` | Secret (Infisical login) | external-secrets | you — step 2 |
+| \`infisical-${repo}-dev\` / \`-prod\` | ClusterSecretStore | — (cluster-wide) | you — steps 3 / 7 |
+| \`${project}\` | AppProject | argocd | you — step 4 |
+| \`${repo}-dev\` / \`${repo}-prod\` | Application | argocd | you — steps 4 / 7 |
+| \`${dev}\` / \`${prod}\` | Namespace | — | ArgoCD on Sync |
+| \`${repo}\` | Deployment, Service, ExternalSecret | ${dev} / ${prod} | ArgoCD on Sync |
+| \`${repo}\` | Secret (the app's secrets) | ${dev} / ${prod} | ESO, from Infisical |
+
+Why the files have no \`namespace:\` line: it is set once per folder in \`apps/<env>/kustomization.yaml\`
+(\`namespace: ${dev}\` / \`${prod}\`) and in each Application's \`destination\`.
+
+## Once (per cluster / per app)
+
+${section('once')}
+## Dev
+
+${section('dev')}
+## Prod
+
+${section('prod')}
+## Day to day
+
+| I want to… | Do |
+|---|---|
+| deploy a new build to dev | Backstage → CD card → **Deploy to dev** → pick a build → step 5 (Sync) |
+| put dev's version into prod | Backstage → **Promote to prod** → merge the PR → step 8 (Sync) |
+| roll back | **Deploy to dev** with an older build (the last 5 images are kept) → Sync; then promote |
+| change a secret | Backstage → ${gitops} → **Secrets** → dev/prod (prod: maintainers/owners) → then: |
+
+\`\`\`bash
+# apply a changed secret now (dev; use ${prod} for prod) — only when the app already runs there
+${applySecretsCmd(repo, project, 'dev')}
+\`\`\`
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| \`namespaces "${prod}" not found\` | prod not synced yet | steps 7 + 8 |
+| \`argocd-prod.yaml\` → 404 | first promote PR not merged yet (or GitHub cache, ~5 min) | merge the PR, wait |
+| pod \`Pending\` | node label missing | step 1 |
+| ExternalSecret \`SecretSyncedError\` | login secret missing/wrong, or store missing | step 2 ("New ESO login"), steps 3 / 7 |
+| pod \`ImagePullBackOff\` | image package is private | GitHub → Packages → ${repo} → make public |
+| pod \`CrashLoopBackOff\` | app fails at start — often a \`CHANGE_ME\` secret | Secrets tab → set the value → apply |
+| Application \`OutOfSync\` | expected: sync is manual | Sync (steps 5 / 8) |
+
 `;
+};
 const mkdocs = (repo: string) => `site_name: ${repo}-gitops\nnav: [{ Runbook: index.md }]\nplugins: [techdocs-core]\n`;
 
 // ---------- create ----------
@@ -556,9 +684,7 @@ async function secretsCtx(config: Config, repo: string) {
   return { project, api, ws };
 }
 
-const refresh = (repo: string, project: string, env: Env) =>
-  `sudo kubectl -n ${ns(project, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
-  `sudo kubectl -n ${ns(project, env)} rollout restart deployment ${repo}`;
+const refresh = applySecretsCmd;
 
 export async function secretsList(config: Config, repo: string, env: Env, refs: string[]) {
   const { project, api, ws } = await secretsCtx(config, repo);
