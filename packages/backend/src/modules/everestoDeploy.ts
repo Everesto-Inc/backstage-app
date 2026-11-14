@@ -225,7 +225,10 @@ export async function createDeployment(
   if (!ci || !loop) throw err(409, 'pipeline is not built on Loop');
   if (/stages\/deploy-argocd@/.test(ci)) throw err(409, `${repo} already has a deployment`);
   const gitops = `${repo}-gitops`;
-  if ((await gh(token, 'GET', `/repos/${OWNER}/${gitops}`)).status !== 404) throw err(409, `repo ${gitops} already exists`);
+  // resumable: a gitops repo created by an earlier, interrupted run is reused
+  const existing = await gh(token, 'GET', `/repos/${OWNER}/${gitops}`);
+  const resume = existing.ok && (await readFile(token, gitops, 'argocd/argocd.yaml')) !== undefined;
+  if (existing.ok && !resume) throw err(409, `repo ${gitops} already exists and was not created by Backstage`);
 
   // newest image = last successful CI run on main
   const runs = await gh(token, 'GET', `/repos/${OWNER}/${repo}/actions/runs?branch=main&status=success&per_page=10`);
@@ -235,11 +238,12 @@ export async function createDeployment(
   const port = 8080;
   const done: string[] = [];
 
-  const inf = opts.infisical ? await infisicalSetup(config, project, repo) : { connected: false };
+  const inf: InfisicalResult = opts.infisical ? await infisicalSetup(config, project, repo) : { connected: false };
   const secrets = opts.infisical && inf.connected;
   if (secrets) done.push(`Infisical project ${project}: folder /${repo} in dev + prod`);
 
   // 1. gitops repo (public: no secrets inside)
+  if (!resume) {
   const created = await gh(token, 'POST', `/orgs/${OWNER}/repos`, {
     name: gitops, visibility: 'public', auto_init: true, has_wiki: false,
     description: `CD (ArgoCD) of ${repo} — apps/dev, apps/prod`,
@@ -263,11 +267,21 @@ export async function createDeployment(
   ];
   await commit(token, gitops, `CD for ${repo}: apps/dev + apps/prod (Backstage, by ${who})`, files);
   done.push(`repo ${OWNER}/${gitops} (apps/dev, apps/prod, argocd/) — first image ${tag}`);
+  } else {
+    done.push(`repo ${OWNER}/${gitops} already there — reused`);
+  }
 
   // 2. deploy key: CI of <repo> may write ONLY to <repo>-gitops
+  const title = `CI of ${repo} (tag bump)`;
+  const old = await gh(token, 'GET', `/repos/${OWNER}/${gitops}/keys`);
+  for (const k of (old.json ?? []) as any[]) if (k.title === title) await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}/keys/${k.id}`);
   const keys = sshKeyPair(`ci-${repo}`);
-  const dk = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/keys`, { title: `CI of ${repo} (tag bump)`, key: keys.publicOpenSsh, read_only: false });
-  if (!dk.ok) throw new Error(`GitHub: cannot add deploy key (${dk.status})`);
+  const dk = await gh(token, 'POST', `/repos/${OWNER}/${gitops}/keys`, { title, key: keys.publicOpenSsh, read_only: false });
+  if (!dk.ok) {
+    const why = JSON.stringify(dk.json?.errors ?? dk.json?.message ?? '');
+    if (why.includes('disabled')) throw err(409, 'Deploy keys are disabled in the GitHub org — Everesto-Inc → Settings → Repository → Deploy keys: Allow, then click Create deployment again (it resumes)');
+    throw new Error(`GitHub: cannot add deploy key (${dk.status} ${why})`);
+  }
   await setRepoSecret(token, OWNER, repo, 'GITOPS_DEPLOY_KEY', keys.privatePem);
 
   // 3. CI repo: Deploy stage + catalog Resource
