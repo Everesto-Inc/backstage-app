@@ -9,6 +9,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # docs-only commits don't rebuild/redeploy (and can't cancel a push in progress)
+    paths-ignore: ['**.md', 'docs/**', 'mkdocs.yml', 'catalog-info.yaml']
   workflow_dispatch:
 
 # A newer push to main cancels the older, still-running pipeline.
