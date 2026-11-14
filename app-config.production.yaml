@@ -71,10 +71,24 @@ auth:
             # GitHub username must match a User entity (everesto-catalog/platform/org.yaml) — anyone else is refused
             - resolver: usernameMatchingUserEntityName
 
+# GitHub = the GitHub App "backstage-tailored" installed on Everesto-Inc (no personal token).
+# Used to read the private catalog repo and (Software Templates) to create repos.
+# Values from Infisical backstage/prod via ESO (gitops-backstage ExternalSecret).
+integrations:
+  github:
+    - host: github.com
+      apps:
+        - appId: ${GITHUB_APP_ID}
+          clientId: ${GITHUB_APP_CLIENT_ID}
+          clientSecret: ${GITHUB_APP_CLIENT_SECRET}
+          privateKey: ${GITHUB_APP_PRIVATE_KEY}
+          webhookSecret: ${GITHUB_APP_WEBHOOK_SECRET}
+          allowedInstallationOwners: [Everesto-Inc]
+
 catalog:
   locations:
-    # everesto.live catalog — private repo, read with integrations.github token (GITHUB_TOKEN,
-    # from Infisical). Changes there show up within minutes, no image rebuild.
+    # everesto.live catalog — private repo, read through the GitHub App above.
+    # Changes there show up within minutes, no image rebuild.
     - type: url
       target: https://github.com/Everesto-Inc/everesto-catalog/blob/main/all.yaml
       rules:
