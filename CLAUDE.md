@@ -153,7 +153,7 @@ Unmatched GitHub logins are refused (as today).
 
 Inside a space, Backstage **Software Template**:
 
-1. Name: `orchid-java-backend` (prefix = space's river, fixed)
+1. Name: `orchid-java-backend` (prefix = space's flower, fixed)
 2. SCM: **GitHub** (only option)
 3. Technology: **Java** (later Node, Python, Go …)
 4. Quality: **SonarQube** (existing, tools node)
