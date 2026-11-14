@@ -112,7 +112,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             )}
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
               Then in ArgoCD: <b>{repo}-dev</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates {project}-prod on first use).
-              {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical</a> → dev → <code>/{repo}</code>.</>}
+              {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev.</>}
             </Typography>
           </>
         ) : (
@@ -129,7 +129,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             </TextField>
 
             <Rows title="Secrets → Infisical" secret rows={secrets} setRows={setSecrets}
-              hint={`Stored in Infisical ${project} / dev / /${repo || '<app>'}, never in git. Empty value = CHANGE_ME, set it in Infisical later.`} />
+              hint={`Stored in Infisical project ${repo || '<app>'}-gitops → dev, never in git. Empty value = CHANGE_ME, set it in Infisical later.`} />
             <Rows title="Config (not secret)" rows={config} setRows={setConfig} hint="Plain environment variables, written into the deployment (visible in git), e.g. LOG_LEVEL=info" />
 
             <Grid container spacing={2} style={{ marginTop: 8 }}>
@@ -142,7 +142,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               <Box mt={2}>
                 <Typography variant="body2">Creates, in this order (stops before git if Infisical fails):</Typography>
                 <Box component="ol" pl={3} m={0} style={{ lineHeight: 1.7, fontSize: 14 }}>
-                  <li>Infisical project <b>{project}</b> → dev → folder <b>/{repo}</b> with the secrets above (+ identity eso-{project} on first use)</li>
+                  <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above + read-only identity eso-{repo}</li>
                   <li>public repo <b>Everesto-Inc/{repo}-gitops</b> — apps/dev with the newest image of {repo} (no secret values)</li>
                   <li>kubectl commands for you: ArgoCD project <b>{project}</b> + app <b>{repo}-dev</b>, secret store</li>
                 </Box>

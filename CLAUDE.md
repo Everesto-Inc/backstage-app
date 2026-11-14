@@ -266,14 +266,14 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
   (+ image built and scanned, not pushed). main: same + image pushed to ghcr.io (every merge, or "Run build" button).
   **CI never deploys.**
 - **Create deployment** (maintainers/owners, backend-enforced) — Infisical is required and runs FIRST:
-  1. Infisical project `<project>` → env dev → folder `/<app>` with the app's secrets (values optional, else CHANGE_ME),
-     identity `eso-<project>` (viewer) on first use — its login shown once as a kubectl command.
+  1. Infisical project `<app>-gitops` (one per application) → env dev with the app's secrets (values optional, else
+     CHANGE_ME), identity `eso-<app>` (viewer) — its login shown once as a kubectl command (secret `infisical-<app>-auth`).
   2. public repo `<app>-gitops`: `apps/dev` (newest image), `argocd/argocd.yaml`, `argocd/secret-stores.yaml`.
   3. catalog Resource `<app>-gitops` (dependsOn the CI component).
 - Default env **dev** (ns `<project>-dev`). **Every ArgoCD sync is manual.** "Deploy to dev" = pick one of the last
   5 builds → tag committed to `apps/dev`. "Promote to prod" = PR (prod tag := dev tag); the first promote also creates
-  `apps/prod`, ns `<project>-prod`, Infisical prod folder and `argocd/argocd-prod.yaml`.
-- **Delete deployment** (owners): deletes `<app>-gitops` + catalog Resource; Infisical secrets are kept.
+  `apps/prod`, ns `<project>-prod`, the prod secrets in Infisical and `argocd/argocd-prod.yaml`.
+- **Delete deployment** (owners): deletes `<app>-gitops` + catalog Resource; the Infisical project is kept.
 - Backstage has **no cluster access** — it returns kubectl commands. Tenant pods need node label
   `everesto.live/pool=tenants`. CD tool: ArgoCD only (no Ansible). Grafana: placeholder.
 - Backstage ↔ Infisical: identity `backstage-platform` (org Admin), keys INFISICAL_CLIENT_ID / _SECRET / _ORG_ID.

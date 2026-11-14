@@ -96,7 +96,7 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
               {dialog === 'promote' && (
                 <Typography variant="body2">
                   Opens a pull request in <code>{repo}-gitops</code>: prod <code>{prodTag ?? '(not created yet)'}</code> → <code>{devTag}</code>.
-                  {!prodTag && <> First promote: also creates <b>apps/prod</b> (namespace {project}-prod) and the Infisical prod folder <code>/{repo}</code> with the same secret names (values CHANGE_ME).</>}
+                  {!prodTag && <> First promote: also creates <b>apps/prod</b> (namespace {project}-prod) and the prod secrets in Infisical <code>{repo}-gitops</code> with the same names (values CHANGE_ME).</>}
                   {' '}After merge: <b>Sync</b> on <b>{repo}-prod</b> in ArgoCD.
                 </Typography>
               )}
