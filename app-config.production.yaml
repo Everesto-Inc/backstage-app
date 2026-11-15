@@ -130,17 +130,6 @@ techdocs:
   publisher:
     type: 'local'
 
-# Kubernetes tab + ArgoCD status: Backstage runs IN the cluster and uses its own ServiceAccount
-# (prod-backstage/backstage) — READ-ONLY ClusterRole gitops-backstage/platform/backstage-k8s-readonly.yaml.
-# No serviceAccountToken here: the backend uses the token mounted into the pod.
-kubernetes:
-  serviceLocatorMethod:
-    type: multiTenant
-  clusterLocatorMethods:
-    - type: config
-      clusters:
-        - name: k3s
-          url: https://kubernetes.default.svc
-          authProvider: serviceAccount
-          caFilePath: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-          skipMetricsLookup: false
+# Cluster views (Kubernetes tab, ArgoCD status) are served by the everesto backend with the pod's own
+# ServiceAccount, namespace by namespace (least privilege) — the generic Kubernetes plugin needs cluster-wide
+# list rights, so it has no cluster configured here.

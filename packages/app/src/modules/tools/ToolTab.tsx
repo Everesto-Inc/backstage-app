@@ -11,6 +11,7 @@ import { compatWrapper } from '@backstage/core-compat-api';
 import { SonarQubeCard } from '@backstage-community/plugin-sonarqube';
 import { RealCiTab, RealCodeTab, RealImageTab } from '../space/RealMetrics';
 import { SecretsTab } from '../space/SecretsTab';
+import { ClusterTab } from '../space/ClusterTab';
 
 // DUMMY data — layout preview only. Each tab becomes the real plugin later.
 
@@ -214,6 +215,7 @@ export const makeToolTab = (toolId: string) => () => {
   const demo = useDemoData();
   // real deployment (Resource <app>-gitops): Infisical always on, Ansible excluded while ArgoCD deploys
   if (!demo && entity.kind === 'Resource' && toolId === 'secrets') return <SecretsTab entity={entity} />;
+  if (!demo && entity.kind === 'Resource' && toolId === 'cd') return <ClusterTab entity={entity} />;
   if (!demo && entity.kind === 'Resource' && toolId === 'config') {
     return <Typography variant="body2" color="textSecondary">Ansible is not used — ArgoCD deploys this app (one deployment tool per app).</Typography>;
   }

@@ -37,7 +37,7 @@ export type DeploymentInput = {
 const kustomization = (image: string, tag: string, project: string, env: Env) => `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${ns(project, env)}
-resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml]
+resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml]
 images:
   - name: ${image}
     newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
@@ -86,6 +86,16 @@ metadata:
   annotations:
     # shared by every app of ${project}: deleting ONE app must never delete the namespace
     argocd.argoproj.io/sync-options: Delete=false
+`;
+
+// Backstage may READ this app's namespace (Kubernetes tab) — ClusterRole backstage-read bound HERE only
+const roleBinding = (repo: string) => `apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-read-${repo}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: backstage-read }
+subjects:
+  - { kind: ServiceAccount, name: backstage, namespace: prod-backstage }
 `;
 
 const service = (repo: string, port: number) => `apiVersion: v1
@@ -317,7 +327,7 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean): 
     {
       n: 5, env: 'dev', title: `Sync ${repo}-dev (or ArgoCD UI → Sync)`,
       cmd: sync('dev'),
-      creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`],
+      creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${dev}: Backstage may READ this namespace — CD tab)`],
       explain: `ArgoCD applies everything in apps/dev: the namespace first, then Deployment (image + tag, port, /health probes, memory), Service (port 80 → container port) and ExternalSecret. ESO sees the ExternalSecret and creates Secret ${repo} from Infisical dev; the pod gets every key as an environment variable. Run again after every "Deploy to dev".`,
     },
     { n: 6, env: 'dev', title: 'Check dev', cmd: check('dev'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
@@ -330,7 +340,7 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean): 
     {
       n: 8, env: 'prod', title: `Sync ${repo}-prod (or ArgoCD UI → Sync)`,
       cmd: sync('prod'),
-      creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`],
+      creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${prod}: Backstage may READ this namespace — CD tab)`],
       explain: `Like step 5, for prod. Run again after every merged "Promote to prod" PR.`,
     },
     { n: 9, env: 'prod', title: 'Check prod', cmd: check('prod'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
@@ -484,6 +494,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   await commit(token, gitops, `CD for ${repo}: apps/dev (Backstage, by ${who})`, [
     { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, project, 'dev') },
     { path: 'apps/dev/namespace.yaml', content: namespace(project, 'dev') },
+    { path: 'apps/dev/rolebinding-backstage.yaml', content: roleBinding(repo) },
     { path: 'apps/dev/deployment.yaml', content: deployment(repo, image, project, 'dev', d) },
     { path: 'apps/dev/service.yaml', content: service(repo, d.port) },
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
@@ -499,7 +510,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/kubernetes-label-selector: app=${repo}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
@@ -570,6 +581,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       { path: 'apps/prod/deployment.yaml', content: devDep.replace(/everesto\.live\/env: dev/g, 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
       { path: 'apps/prod/service.yaml', content: devSvc },
       { path: 'apps/prod/namespace.yaml', content: namespace(project, 'prod') },
+      { path: 'apps/prod/rolebinding-backstage.yaml', content: roleBinding(repo) },
       { path: 'apps/prod/externalsecret.yaml', content: externalSecret(repo, project, 'prod') },
       { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url)}---\n${application(repo, project, 'prod')}` },
     );

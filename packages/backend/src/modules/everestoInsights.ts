@@ -17,7 +17,7 @@ import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
-import { argoApp } from './everestoK8s';
+import { argoApp, podLogs, workloads } from './everestoK8s';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -355,6 +355,43 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await secretDelete(config, repo, secEnv, str(req.body?.name), refs);
             logger.info(`secret ${out.deleted} (${secEnv}) of ${repo} DELETED by ${who}`);
             res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        // ---- cluster view of a deployment: only the app's namespaces, only for project members ----
+        const member = async (req: express.Request, repo: string) => {
+          const { refs } = await caller(req);
+          const { project } = await appInfo(await githubToken(config, OWNER), repo);
+          if (!allowed(refs, project, ['owners', 'maintainers', 'developers', 'viewers'])) {
+            throw Object.assign(new Error(`only members of ${project} can see its cluster resources`), { status: 403 });
+          }
+          return project;
+        };
+
+        router.get('/apps/:repo/k8s', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const project = await member(req, repo);
+            const envs = await Promise.all((['dev', 'prod'] as const).map(async e => ({
+              env: e,
+              argo: await argoApp(`${repo}-${e}`),
+              k8s: await workloads(`${project}-${e}`, repo),
+            })));
+            res.json({ clusterAccess: envs.some(e => e.k8s !== undefined), envs });
+          } catch (e) { fail(res, e); }
+        });
+
+        router.get('/apps/:repo/k8s/logs', async (req, res) => {
+          const { repo } = req.params;
+          const logEnv = envOf(req.query.env);
+          const pod = typeof req.query.pod === 'string' && /^[a-z0-9.-]{1,253}$/.test(req.query.pod) ? req.query.pod : undefined;
+          if (!validRepo(repo) || !logEnv || !pod) { res.status(400).json({ error: 'invalid repo, env or pod' }); return; }
+          try {
+            const project = await member(req, repo);
+            const text = await podLogs(`${project}-${logEnv}`, repo, pod, Number(req.query.tail ?? 200), req.query.previous === '1');
+            if (text === undefined) { res.status(404).json({ error: 'pod not found or not readable' }); return; }
+            res.json({ pod, env: logEnv, log: text });
           } catch (e) { fail(res, e); }
         });
 
