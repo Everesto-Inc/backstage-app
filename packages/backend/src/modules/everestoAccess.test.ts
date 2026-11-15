@@ -1,4 +1,4 @@
-import { permissionFor, rulesetBody } from './everestoAccess';
+import { expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
 
 describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
@@ -32,11 +32,10 @@ describe('rulesetBody', () => {
 describe('expandEntityAdmins', () => {
   const spacesOf = async (entity: string) => (entity === 'blackbuck' ? ['orchid', 'lotus'] : []);
   it('makes an entity admin maintainer of every space of THAT entity', async () => {
-    const refs = await (await import('./everestoAccess')).expandEntityAdmins(['group:default/blackbuck-admins'], spacesOf);
+    const refs = await expandEntityAdmins(['group:default/blackbuck-admins'], spacesOf);
     expect(refs).toEqual(expect.arrayContaining(['group:default/orchid-maintainers', 'group:default/lotus-maintainers']));
   });
   it('adds nothing for other groups, and never crosses entities', async () => {
-    const { expandEntityAdmins } = await import('./everestoAccess');
     expect(await expandEntityAdmins(['group:default/orchid-developers'], spacesOf)).toEqual(['group:default/orchid-developers']);
     expect(await expandEntityAdmins(['group:default/okapi-admins'], spacesOf)).toEqual(['group:default/okapi-admins']);
   });

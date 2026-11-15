@@ -7,6 +7,7 @@ const user = (refs: string[]) => ({ info: { userEntityRef: 'user:default/x', own
 const policy = new PlatformTeamPermissionPolicy();
 const decide = async (permission: any, refs: string[]) => (await policy.handle({ permission } as any, user(refs))).result;
 
+
 describe('PlatformTeamPermissionPolicy', () => {
   it('lets every signed-in user read the catalog', async () => {
     expect(await decide(catalogEntityReadPermission, [])).toBe(AuthorizeResult.ALLOW);
@@ -21,13 +22,19 @@ describe('PlatformTeamPermissionPolicy', () => {
 
   it('lets space members (developer and up) and platform-team run templates', async () => {
     expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.ALLOW);
-    expect(await decide(taskCreatePermission, ['group:default/orchid-owners'])).toBe(AuthorizeResult.ALLOW);
+    expect(await decide(taskCreatePermission, ['group:default/orchid-maintainers'])).toBe(AuthorizeResult.ALLOW);
+    expect(await decide(taskCreatePermission, ['group:default/blackbuck-admins'])).toBe(AuthorizeResult.ALLOW); // entity admin
     expect(await decide(taskCreatePermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
   });
 
   it('denies templates to viewers and users without a space', async () => {
     expect(await decide(taskCreatePermission, ['group:default/orchid-viewers'])).toBe(AuthorizeResult.DENY);
     expect(await decide(taskCreatePermission, [])).toBe(AuthorizeResult.DENY);
+  });
+
+  it('denies catalog writes to maintainers and entity admins (platform-team only)', async () => {
+    expect(await decide(catalogEntityDeletePermission, ['group:default/orchid-maintainers'])).toBe(AuthorizeResult.DENY);
+    expect(await decide(catalogEntityDeletePermission, ['group:default/blackbuck-admins'])).toBe(AuthorizeResult.DENY);
   });
 
   it('denies privileged actions to anonymous callers', async () => {
