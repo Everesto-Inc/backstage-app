@@ -11,12 +11,12 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
-import { Member, ROLES, ROLE_LABEL, Role, useIsProjectMaintainer, useIsProjectOwner, useMembers } from './data';
+import { Member, ROLES, ROLE_LABEL, Role, useIsProjectMaintainer, useMembers } from './data';
 import { PreviewDialog } from './PreviewDialog';
 import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
-  maintainers: 'space manager: deployments, promote to prod, prod secrets, tools, invite developers/viewers',
+  maintainers: 'space manager: deployments, promote to prod, prod secrets, tools, add members (incl. maintainers)',
   developers: 'push code via pull request, create CI pipelines, dev secrets — no prod, no delete',
   viewers: 'read only',
 };
@@ -53,8 +53,7 @@ export const ProjectMembers = () => {
   const { entity } = useEntity();
   const project = entity.metadata.name;
   const { value, loading, error } = useMembers(project);
-  // maintainers (space managers) invite developers/viewers; only owners (super admin) make maintainers
-  const isSuperAdmin = useIsProjectOwner(project);
+  // maintainers (space managers) add developers, viewers and other maintainers of THEIR space; owner = platform-team
   const isOwner = useIsProjectMaintainer(project);
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Member | undefined>();
@@ -126,7 +125,7 @@ export const ProjectMembers = () => {
         <Box display="flex" style={{ gap: 12 }}>
           <TextField label="Email" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
           <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
-            {ROLES.filter(r => isSuperAdmin || r !== 'maintainers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
+            {ROLES.map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
           </TextField>
         </Box>
       </PreviewDialog>

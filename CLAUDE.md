@@ -118,8 +118,8 @@ enforce in the permission policy and to audit.
 
 | Role | Who | Can |
 |---|---|---|
-| **owner** | **platform-team** (super admin) — not a per-space group | everything, every space: delete applications, make maintainers, create/delete spaces and entities, change Backstage |
-| **maintainer** (`<space>-maintainers`) | manager of ONE space | developer + Create deployment, Deploy, **Promote to prod**, **prod secrets**, change tools, delete deployments, invite developers/viewers |
+| **owner** | **platform-team** (super admin) — not a per-space group | everything, every space: delete applications, create/delete spaces and entities, add any member anywhere, change Backstage |
+| **maintainer** (`<space>-maintainers`) | manager of ONE space | developer + Create deployment, Deploy, **Promote to prod**, **prod secrets**, change tools, delete deployments, add members of their space (developers, viewers, maintainers) |
 | **developer** (`<space>-developers`) | team member | Create pipeline (CI), push code **via pull request only**, dev secrets, Run build — no prod, no delete |
 | **viewer** (`<space>-viewers`) | read-only | see everything in the space (names of secrets, never values) |
 
