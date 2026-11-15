@@ -19,9 +19,15 @@ describe('PlatformTeamPermissionPolicy', () => {
     }
   });
 
-  it('runs templates only for platform-team (current rule)', async () => {
-    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.DENY);
+  it('lets space members (developer and up) and platform-team run templates', async () => {
+    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.ALLOW);
+    expect(await decide(taskCreatePermission, ['group:default/orchid-owners'])).toBe(AuthorizeResult.ALLOW);
     expect(await decide(taskCreatePermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
+  });
+
+  it('denies templates to viewers and users without a space', async () => {
+    expect(await decide(taskCreatePermission, ['group:default/orchid-viewers'])).toBe(AuthorizeResult.DENY);
+    expect(await decide(taskCreatePermission, [])).toBe(AuthorizeResult.DENY);
   });
 
   it('denies privileged actions to anonymous callers', async () => {

@@ -136,6 +136,30 @@ export function sshKeyPair(comment: string) {
   };
 }
 
+/** First step of every space template: the user must be a member of the CHOSEN space (or platform-team). */
+function requireSpaceMember() {
+  return createTemplateAction({
+    id: 'everesto:space:require-member',
+    description: 'Fail unless the user is developer/maintainer/owner of the chosen space (or platform-team)',
+    schema: {
+      input: {
+        project: z => z.string().describe('System entity ref of the space, e.g. system:default/orchid'),
+        roles: z => z.array(z.string()).default(['owners', 'maintainers', 'developers']),
+      },
+    },
+    async handler(ctx) {
+      const space = ctx.input.project.replace(/^system:(default\/)?/, '');
+      const groups = (ctx.user?.entity?.relations ?? []).filter(r => r.type === 'memberOf').map(r => r.targetRef);
+      const ok = groups.includes('group:default/platform-team')
+        || ctx.input.roles.some(role => groups.includes(`group:default/${space}-${role}`));
+      if (!ok) {
+        throw new Error(`${ctx.user?.ref ?? 'you'} is not ${ctx.input.roles.join('/')} of space ${space} — ask an owner of ${space}`);
+      }
+      ctx.logger.info(`${ctx.user?.ref} may create in space ${space}`);
+    },
+  });
+}
+
 const parseRepoUrl = (repoUrl: string) => {
   // "github.com?owner=Everesto-Inc&repo=seine-api"
   const q = new URLSearchParams(repoUrl.split('?')[1] ?? '');
@@ -304,7 +328,7 @@ export const everestoActionsModule = createBackendModule({
     reg.registerInit({
       deps: { scaffolder: scaffolderActionsExtensionPoint, config: coreServices.rootConfig },
       async init({ scaffolder, config }) {
-        scaffolder.addActions(sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
+        scaffolder.addActions(requireSpaceMember(), sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
       },
     });
   },

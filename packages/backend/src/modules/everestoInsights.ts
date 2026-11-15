@@ -18,6 +18,7 @@ import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './e
 import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 import { argoApp, podLogs, workloads } from './everestoK8s';
+import { readSpaces, syncGithubAccess } from './everestoAccess';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -178,8 +179,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
         userInfo: coreServices.userInfo,
         auth: coreServices.auth,
         catalog: catalogServiceRef,
+        scheduler: coreServices.scheduler,
       },
-      async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog }) {
+      async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog, scheduler }) {
         const cache = new Map<string, { at: number; data: unknown }>();
         const router = Router();
         router.get('/pipeline/:repo', async (req, res) => {
@@ -394,6 +396,35 @@ export const everestoInsightsPlugin = createBackendPlugin({
             res.json({ pod, env: logEnv, log: text });
           } catch (e) { fail(res, e); }
         });
+
+        // ---- access sync: Backstage groups → GitHub teams, invitations, branch protection ----
+        const runAccessSync = async (dryRun: boolean) => {
+          const credentials = await auth.getOwnServiceCredentials();
+          const getEntities = async (filter: Record<string, string>) => (await catalog.getEntities({ filter }, { credentials })).items;
+          return syncGithubAccess(config, await readSpaces(getEntities), dryRun);
+        };
+        router.post('/access/sync', async (req, res) => {
+          try {
+            const { refs, who } = await caller(req);
+            if (!refs.includes('group:default/platform-team')) { res.status(403).json({ error: 'platform-team only' }); return; }
+            const dryRun = req.query.dryRun !== '0';
+            const out = await runAccessSync(dryRun);
+            logger.info(`access sync (${dryRun ? 'dry run' : 'APPLIED'}) by ${who}: ${out.actions.length} actions, ${out.warnings.length} warnings`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+        if (config.getOptionalBoolean('everesto.accessSync.enabled')) {
+          await scheduler.scheduleTask({
+            id: 'everesto-access-sync',
+            frequency: { minutes: 30 },
+            timeout: { minutes: 10 },
+            initialDelay: { minutes: 3 },
+            fn: async () => {
+              const out = await runAccessSync(false);
+              if (out.actions.length || out.warnings.length) logger.info(`access sync: ${[...out.actions, ...out.warnings.map(w => `WARN ${w}`)].join(' | ')}`);
+            },
+          });
+        }
 
         router.get('/apps/:repo/builds', async (req, res) => {
           const { repo } = req.params;

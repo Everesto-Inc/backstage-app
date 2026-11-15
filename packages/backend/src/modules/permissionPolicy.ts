@@ -38,11 +38,13 @@ import {
 const PRIVILEGED_GROUP = 'group:default/platform-team';
 
 // Permissions that are denied unless the caller is in the privileged group.
+// Running templates (Create pipeline): members of any DevOps space (developer and up) + platform-team.
+// The template's first step (everesto:space:require-member) then checks membership of the CHOSEN space.
+const TEMPLATE_RUN_PERMISSIONS = [actionExecutePermission, taskCreatePermission];
+const SPACE_MEMBER = /^group:default\/[a-z0-9-]+-(owners|maintainers|developers)$/;
+
 const PRIVILEGED_PERMISSIONS = [
-  // Scaffolder: executing templates/actions uses the backend GITHUB_TOKEN and
-  // can make outbound requests — keep it to the platform team.
-  actionExecutePermission,
-  taskCreatePermission,
+  // Scaffolder: editing templates stays with the platform team.
   templateManagementPermission,
   // Catalog: registering a location makes the backend fetch an arbitrary URL
   // (SSRF to cloud metadata / internal services). Deleting/creating entities
@@ -61,6 +63,12 @@ export class PlatformTeamPermissionPolicy implements PermissionPolicy {
     const isPrivileged = PRIVILEGED_PERMISSIONS.some(permission =>
       isPermission(request.permission, permission),
     );
+
+    const refs = user?.info.ownershipEntityRefs ?? [];
+    if (TEMPLATE_RUN_PERMISSIONS.some(p => isPermission(request.permission, p))) {
+      const ok = refs.includes(PRIVILEGED_GROUP) || refs.some(r => SPACE_MEMBER.test(r));
+      return { result: ok ? AuthorizeResult.ALLOW : AuthorizeResult.DENY };
+    }
 
     if (isPrivileged) {
       const inGroup =
