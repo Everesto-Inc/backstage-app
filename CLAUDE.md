@@ -20,7 +20,7 @@
 | Secrets (local) | none |
 | Permissions | custom policy `packages/backend/src/modules/permissionPolicy.ts` (writes = `platform-team` only) |
 | Image | `ghcr.io/everesto-inc/backstage`, linux/arm64, built by `.github/workflows/ci.yml` |
-| Deploy | CI bumps tag in `gitops-backstage/apps/prod/values.yaml` → ArgoCD app `backstage-prod` (project `backstage`, path `apps/prod`) → ns `prod-backstage` → NodePort 30700 → Traefik on alb |
+| Deploy | CI bumps tag in `gitops-backstage/apps/prod/values.yaml` → ArgoCD app `prod-backstage` (project `backstage`, path `apps/prod`) → ns `prod-backstage` → NodePort 30700 → Traefik on alb |
 | Environments | **dev** = local (`yarn start`) · **prod** = K3s ns `prod-backstage` (only one in-cluster copy) |
 
 ## Config files
