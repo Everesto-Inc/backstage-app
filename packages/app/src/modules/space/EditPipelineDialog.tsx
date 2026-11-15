@@ -39,7 +39,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const isPlatform = refs.includes('group:default/platform-team');
   const canEdit = isPlatform || refs.includes(`group:default/${project}-owners`) || refs.includes(`group:default/${project}-maintainers`);
   // platform systems (Backstage itself, Loop) are never deletable from Backstage
-  const canDelete = !['backstage', 'loop'].includes(project) && (isPlatform || refs.includes(`group:default/${project}-owners`));
+  const isProtected = ['backstage', 'loop'].includes(project) || entity.metadata.annotations?.['everesto.live/protected'] === 'true';
+  const canDelete = !isProtected && (isPlatform || refs.includes(`group:default/${project}-owners`));
 
   // repository only (no CI): nothing to switch, just Delete
   const tools = repoOnly ? [] : TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));
@@ -138,6 +139,11 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
           </Box>
         )}
 
+        {isProtected && (
+          <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
+            Platform · protected — this cannot be deleted from Backstage (by anyone).
+          </Typography>
+        )}
         {canDelete && (
           <Box mt={3}>
             <Divider />

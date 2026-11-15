@@ -16,7 +16,7 @@
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
-import { OWNER, PROTECTED_SYSTEMS, allowed, appInfo, commit, readFile } from './everestoManage';
+import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
 
 type Env = 'dev' | 'prod';
 const ns = (project: string, env: Env) => `${project}-${env}`;
@@ -627,7 +627,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
 export async function deleteDeployment(config: Config, repo: string, refs: string[], who: string, unregister: (name: string) => Promise<void>) {
   const token = await githubToken(config, OWNER);
   const { info, project } = await appInfo(token, repo);
-  if (PROTECTED_SYSTEMS.includes(project)) throw err(403, `${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`);
+  if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw err(403, `${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`);
   if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can delete deployments`);
   const gitops = `${repo}-gitops`;
   const done: string[] = [];

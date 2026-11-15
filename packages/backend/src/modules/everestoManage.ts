@@ -21,6 +21,8 @@ export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
 /** Platform systems (domain platform): never deletable from Backstage — Backstage must not delete itself. */
 export const PROTECTED_SYSTEMS = ['backstage', 'loop'];
+/** …or any entity annotated everesto.live/protected: "true" (platform roots). */
+export const isProtected = (catalogInfo: string) => /everesto\.live\/protected:\s*["']?true/.test(catalogInfo);
 
 type File = { path: string; content: string | null }; // null = delete
 
@@ -173,8 +175,8 @@ export async function deleteApp(
   unregister: (repo: string) => Promise<void>,
 ) {
   const token = await githubToken(config, OWNER);
-  const { project, sonarKey } = await appInfo(token, repo);
-  if (PROTECTED_SYSTEMS.includes(project)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
+  const { info, project, sonarKey } = await appInfo(token, repo);
+  if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
   if (!allowed(refs, project, ['owners'])) {
     throw Object.assign(new Error(`only owners of ${project} can delete its applications`), { status: 403 });
   }
