@@ -151,7 +151,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
         <DialogContent>
           {edit?.isNew && (
             <TextField fullWidth size="small" variant="outlined" margin="dense" label="Name" value={newName} error={!!newName && !VAR.test(newName)}
-              onChange={e => setNewName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))} helperText="A-Z 0-9 _ — becomes an environment variable" />
+              onChange={e => setNewName(e.target.value.toUpperCase().replaceAll(/[^A-Z0-9_]/g, '_'))} helperText="A-Z 0-9 _ — becomes an environment variable" />
           )}
           <TextField fullWidth size="small" variant="outlined" margin="dense" label="Value" type="password" autoComplete="new-password"
             value={value} onChange={e => setValue(e.target.value)} helperText={`Written to Infisical ${repo}-gitops / ${env}. Not stored in Backstage.`} />

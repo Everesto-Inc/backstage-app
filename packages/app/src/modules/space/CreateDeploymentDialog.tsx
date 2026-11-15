@@ -42,7 +42,7 @@ const Rows = ({ title, hint, rows, setRows, secret }: { title: string; hint: str
       <Box key={i} display="flex" style={{ gap: 8 }} mt={1}>
         <TextField size="small" variant="outlined" placeholder="NAME" value={r.name} style={{ flex: 1 }}
           error={!!r.name && !VAR.test(r.name)}
-          onChange={e => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') } : x)))} />
+          onChange={e => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value.toUpperCase().replaceAll(/[^A-Z0-9_]/g, '_') } : x)))} />
         <TextField size="small" variant="outlined" placeholder={secret ? 'value (optional — or set it in Infisical)' : 'value'} value={r.value}
           type={secret ? 'password' : 'text'} autoComplete="new-password" style={{ flex: 1.4 }}
           onChange={e => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} />
@@ -136,9 +136,9 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Grid container spacing={2} style={{ marginTop: 8 }}>
               <Grid item xs={12}><TextField fullWidth size="small" variant="outlined" label="Health check path" value={health} onChange={e => setHealth(e.target.value)}
                 helperText="HTTP GET → readiness + liveness probes (FastAPI skeleton: /health). Empty = only check that the port is open." /></Grid>
-              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Container port" value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ''))} /></Grid>
-              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Memory limit (Mi)" value={memory} onChange={e => setMemory(e.target.value.replace(/\D/g, ''))} helperText="64–1024 · nodes are small" /></Grid>
-              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Replicas" value={replicas} onChange={e => setReplicas(e.target.value.replace(/\D/g, ''))} helperText="1–3" /></Grid>
+              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Container port" value={port} onChange={e => setPort(e.target.value.replaceAll(/\D/g, ''))} /></Grid>
+              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Memory limit (Mi)" value={memory} onChange={e => setMemory(e.target.value.replaceAll(/\D/g, ''))} helperText="64–1024 · nodes are small" /></Grid>
+              <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Replicas" value={replicas} onChange={e => setReplicas(e.target.value.replaceAll(/\D/g, ''))} helperText="1–3" /></Grid>
             </Grid>
 
             {repo && (

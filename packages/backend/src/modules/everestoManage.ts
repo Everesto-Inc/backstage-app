@@ -53,7 +53,7 @@ export async function commit(token: string, repo: string, message: string, files
 export async function appInfo(token: string, repo: string) {
   const info = await readFile(token, repo, 'catalog-info.yaml');
   if (!info) throw Object.assign(new Error('not a Backstage application (no catalog-info.yaml)'), { status: 404 });
-  const project = info.match(/^\s+system:\s*([a-z0-9-]+)/m)?.[1];
+  const project = info.match(/^ +system: *([a-z0-9-]+)/m)?.[1];
   const sonarKey = info.match(/sonarqube\.org\/project-key:\s*([A-Za-z0-9_.:-]+)/)?.[1];
   if (!project) throw Object.assign(new Error('catalog-info.yaml has no spec.system'), { status: 409 });
   return { info, project, sonarKey, app: repo.startsWith(`${project}-`) ? repo.slice(project.length + 1) : repo };
@@ -101,6 +101,32 @@ updates:
     cooldown: { default-days: 7 }
 `;
 
+/**
+ * Pure: add/remove the Semgrep / SonarQube Loop stages in ci.yml and their annotations in catalog-info.yaml.
+ * Removing then adding a stage gives back the identical file (tested in everestoManage.test.ts).
+ */
+export function editCiTools(
+  ciIn: string, catalogIn: string, change: ToolChange, has: { semgrep: boolean; sonarqube: boolean },
+  repo: string, sha: string, version: string,
+) {
+  let ci = ciIn;
+  let catalog = catalogIn;
+  const done: string[] = [];
+  for (const tool of ['semgrep', 'sonarqube'] as const) {
+    const want = change[tool];
+    if (want === undefined || want === has[tool]) continue;
+    if (want) {
+      ci = ci.replace(/(\n {6}- name: Build \+ scan image \(Trivy\))/, `\n${STEP[tool](sha, version)}$1`);
+      catalog = catalog.replace(/(^ {4}everesto\.live\/image:.*\n)/m, `$1${ANNOTATION[tool](repo)}`);
+    } else {
+      ci = ci.replace(STEP_RE[tool], '\n');
+      catalog = catalog.replace(ANNOTATION_RE[tool], '');
+    }
+    done.push(`${want ? 'add' : 'remove'} ${tool}`);
+  }
+  return { ci: ci.replaceAll(/\n{3,}/g, '\n\n'), catalog, done };
+}
+
 export type ToolChange = Partial<Record<'sonarqube' | 'semgrep' | 'dependabot', boolean>>;
 
 export async function setTools(config: Config, repo: string, change: ToolChange, refs: string[], who: string) {
@@ -124,19 +150,10 @@ export async function setTools(config: Config, repo: string, change: ToolChange,
   };
   const after: (() => Promise<void>)[] = []; // deletions run only after the commit landed
 
-  for (const tool of ['semgrep', 'sonarqube'] as const) {
-    const want = change[tool];
-    if (want === undefined || want === has[tool]) continue;
-    if (want) {
-      ci = ci.replace(/(\n {6}- name: Build \+ scan image \(Trivy\))/, `\n${STEP[tool](sha, version)}$1`);
-      catalog = catalog.replace(/(^ {4}everesto\.live\/image:.*\n)/m, `$1${ANNOTATION[tool](repo)}`);
-    } else {
-      ci = ci.replace(STEP_RE[tool], '\n');
-      catalog = catalog.replace(ANNOTATION_RE[tool], '');
-    }
-    done.push(`${want ? 'add' : 'remove'} ${tool}`);
-  }
-  ci = ci.replace(/\n{3,}/g, '\n\n');
+  const edited = editCiTools(ci, catalog, change, has, repo, sha, version);
+  ci = edited.ci;
+  catalog = edited.catalog;
+  done.push(...edited.done);
 
   if (change.dependabot !== undefined && change.dependabot !== has.dependabot) {
     files.push({ path: '.github/dependabot.yml', content: change.dependabot ? dependabotYml(stack) : null });

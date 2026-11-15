@@ -7,7 +7,7 @@ import { Entity } from '@backstage/catalog-model';
  */
 const seed = (s: string) => {
   let h = 2166136261;
-  for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  for (const c of s) h = Math.imul(h ^ (c.codePointAt(0) ?? 0), 16777619);
   return () => {
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h >>> 0) % 1000) / 1000;

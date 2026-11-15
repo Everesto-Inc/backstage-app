@@ -128,7 +128,7 @@ const lightTheme = ThemeBlueprint.make({
       title: 'Light',
       variant: 'light',
       icon: <LightIcon />,
-      Provider: ({ children }) => <UnifiedThemeProvider theme={light} children={children} />,
+      Provider: ({ children }) => <UnifiedThemeProvider theme={light}>{children}</UnifiedThemeProvider>,
     },
   },
 });
@@ -141,7 +141,7 @@ const darkTheme = ThemeBlueprint.make({
       title: 'Dark',
       variant: 'dark',
       icon: <DarkIcon />,
-      Provider: ({ children }) => <UnifiedThemeProvider theme={dark} children={children} />,
+      Provider: ({ children }) => <UnifiedThemeProvider theme={dark}>{children}</UnifiedThemeProvider>,
     },
   },
 });

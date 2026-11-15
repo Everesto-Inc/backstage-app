@@ -296,8 +296,8 @@ export const ProjectPipelines = () => {
 
   // project summary (dummy): aggregate the per-app metrics — demo only
   const ms = ci.map(metricsFor);
-  const commits = ms.reduce((acc, m) => acc.map((v, i) => v + m.commits[i]), Array(14).fill(0));
-  const deploys = cd.map(metricsFor).reduce((acc, m) => acc.map((v, i) => v + m.deploys[i]), Array(14).fill(0));
+  const commits = ms.reduce((acc, m) => acc.map((v, i) => v + m.commits[i]), new Array<number>(14).fill(0));
+  const deploys = cd.map(metricsFor).reduce((acc, m) => acc.map((v, i) => v + m.deploys[i]), new Array<number>(14).fill(0));
   const failing = ms.filter(m => !m.lastBuild.ok).length;
   const scanned = (e: Entity, id: string) => toolState(e, CI_TOOLS.find(t => t.id === id)!).kind === 'connected';
   const vulns = ci.reduce((n, e, i) =>

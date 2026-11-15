@@ -53,7 +53,7 @@ const PRIVILEGED_PERMISSIONS = [
   catalogEntityDeletePermission,
 ];
 
-class PlatformTeamPermissionPolicy implements PermissionPolicy {
+export class PlatformTeamPermissionPolicy implements PermissionPolicy {
   async handle(
     request: PolicyQuery,
     user?: PolicyQueryUser,

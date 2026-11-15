@@ -63,7 +63,7 @@ const Mark = ({ slug, size = 32, fallback }: { slug?: string; size?: number; fal
   const theme = useTheme();
   const logo = slug ? LOGOS[slug] : undefined;
   const dark = theme.palette.type === 'dark';
-  const lum = logo ? (() => { const [r, g, b] = [1, 3, 5].map(i => parseInt(logo.hex.slice(i, i + 2), 16) / 255); return 0.2126 * r + 0.7152 * g + 0.0722 * b; })() : 1;
+  const lum = logo ? (() => { const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(logo.hex.slice(i, i + 2), 16) / 255); return 0.2126 * r + 0.7152 * g + 0.0722 * b; })() : 1;
   const ink = logo ? (dark && lum < 0.2 ? theme.palette.text.primary : logo.hex) : theme.palette.text.secondary;
   return (
     <span style={{ width: size, height: size, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: `${logo && !(dark && lum < 0.2) ? logo.hex : '#888888'}1f` }}>

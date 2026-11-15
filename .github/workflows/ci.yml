@@ -77,8 +77,11 @@ jobs:
           wait $BUILD; BUILD_RC=$?
           exit $(( TSC_RC || BUILD_RC ))
 
+      - name: Tests + coverage
+        run: CI=true yarn backstage-cli repo test --coverage   # → coverage/lcov.info (read by SonarQube)
+
       # SonarQube: analysis + report on https://sonar.everesto.live (project backstage-app).
-      # Gate NOT blocking yet (almost no tests → the default gate's 80 % new-code coverage would fail every build).
+      # Gate NOT blocking yet (coverage is still low → the default gate's 80 % new-code coverage would fail most builds).
       # Make it blocking later: -Dsonar.qualitygate.wait=true. Token = repo secret SONAR_TOKEN (project analysis token).
       - name: SonarQube token available?
         id: sonar

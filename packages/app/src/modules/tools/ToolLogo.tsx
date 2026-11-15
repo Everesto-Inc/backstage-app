@@ -16,7 +16,7 @@ import { LOGOS } from './logos';
 import { Tool } from './tools';
 
 const luminance = (hex: string) => {
-  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16) / 255);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 

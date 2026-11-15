@@ -183,7 +183,8 @@ async function infisical(config: Config) {
   const url = config.getOptionalString('infisical.url');
   const clientId = config.getOptionalString('infisical.clientId');
   const clientSecret = config.getOptionalString('infisical.clientSecret');
-  const orgId = config.getOptionalString('infisical.organizationId')?.trim().replace(/\/+$/, ''); // tolerate a pasted trailing '/'
+  let orgId = config.getOptionalString('infisical.organizationId')?.trim(); // tolerate a pasted trailing '/'
+  while (orgId?.endsWith('/')) orgId = orgId.slice(0, -1);
   if (!url || !clientId || !clientSecret || !orgId) {
     throw err(409, 'Backstage is not connected to Infisical yet (identity backstage-platform) — nothing was created. Secrets are required for a deployment.');
   }
@@ -576,9 +577,9 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       {
         path: 'apps/prod/kustomization.yaml',
         content: dev.replace(`namespace: ${ns(project, 'dev')}`, `namespace: ${ns(project, 'prod')}`)
-          .replace(/#.*$/m, '# changed by "Promote to prod" (PR) — then Sync in ArgoCD'),
+          .split('\n').map(l => (l.includes('newTag:') ? `${l.split('#')[0].trimEnd()}   # changed by "Promote to prod" (PR) — then Sync in ArgoCD` : l)).join('\n'),
       },
-      { path: 'apps/prod/deployment.yaml', content: devDep.replace(/everesto\.live\/env: dev/g, 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
+      { path: 'apps/prod/deployment.yaml', content: devDep.replaceAll('everesto.live/env: dev', 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
       { path: 'apps/prod/service.yaml', content: devSvc },
       { path: 'apps/prod/namespace.yaml', content: namespace(project, 'prod') },
       { path: 'apps/prod/rolebinding-backstage.yaml', content: roleBinding(repo) },
