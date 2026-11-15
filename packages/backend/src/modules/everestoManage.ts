@@ -19,6 +19,8 @@ import { infisicalDelete } from './everestoDeploy';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
+/** Platform systems (domain platform): never deletable from Backstage — Backstage must not delete itself. */
+export const PROTECTED_SYSTEMS = ['backstage', 'loop'];
 
 type File = { path: string; content: string | null }; // null = delete
 
@@ -172,6 +174,7 @@ export async function deleteApp(
 ) {
   const token = await githubToken(config, OWNER);
   const { project, sonarKey } = await appInfo(token, repo);
+  if (PROTECTED_SYSTEMS.includes(project)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
   if (!allowed(refs, project, ['owners'])) {
     throw Object.assign(new Error(`only owners of ${project} can delete its applications`), { status: 403 });
   }

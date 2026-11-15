@@ -37,6 +37,7 @@ jobs:
       image_tag: ${{ steps.sha.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0 }   # full history: SonarQube "new code"
 
       # Backstage builds the backend OUTSIDE Docker (needs lots of RAM — never on our VMs)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -75,6 +76,21 @@ jobs:
           wait $TSC; TSC_RC=$?
           wait $BUILD; BUILD_RC=$?
           exit $(( TSC_RC || BUILD_RC ))
+
+      # SonarQube: analysis + report on https://sonar.everesto.live (project backstage-app).
+      # Gate NOT blocking yet (almost no tests → the default gate's 80 % new-code coverage would fail every build).
+      # Make it blocking later: -Dsonar.qualitygate.wait=true. Token = repo secret SONAR_TOKEN (project analysis token).
+      - name: SonarQube token available?
+        id: sonar
+        run: echo "has_token=${{ secrets.SONAR_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      - name: Code quality (SonarQube)
+        if: steps.sonar.outputs.has_token == 'true'
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4 # v8.5.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}        # only this step sees it
+          SONAR_HOST_URL: https://sonar.everesto.live
+        with:
+          args: -Dsonar.qualitygate.wait=false
 
       - name: Image tag = short commit SHA
         id: sha
