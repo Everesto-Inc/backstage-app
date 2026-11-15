@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Entity } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, identityApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Link, TextField, Typography,
 } from '@material-ui/core';
@@ -11,6 +11,7 @@ import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { SetupStep, SetupSteps } from './CdActions';
 import { ago, insightsTarget } from './insights';
+import { useSpaceRole } from './data';
 
 /**
  * Deployment → Secrets tab (real). Infisical project <app>-gitops, env dev / prod.
@@ -25,7 +26,6 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   const alertApi = useApi(alertApiRef);
-  const identityApi = useApi(identityApiRef);
   const repo = insightsTarget(entity).repo;
   const project = String(entity.spec?.system ?? '');
   const [env, setEnv] = useState<Env>('dev');
@@ -37,8 +37,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
   const [applyCmd, setApplyCmd] = useState<string | undefined>();
   const [esoCmd, setEsoCmd] = useState<string | undefined>();
 
-  const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
-  const isMaintainer = ['platform-team', `${project}-owners`, `${project}-maintainers`].some(g => refs.includes(`group:default/${g}`));
+  const isMaintainer = useSpaceRole(project).maintainer; // includes entity admins
 
   const call = async (method: 'GET' | 'POST', path: string, body?: unknown) => {
     const base = await discovery.getBaseUrl('everesto');

@@ -31,10 +31,24 @@ type Space = {
 
 const slugOf = (e: any) => String(e.metadata?.annotations?.['github.com/project-slug'] ?? '').split('/')[1];
 
+const ENTITY_ADMIN = /^group:default\/([a-z0-9-]+)-admins$/;
+
+/** Entity admins act as maintainers of every space of their entity: add those maintainer groups to the refs. */
+export async function expandEntityAdmins(refs: string[], spacesOf: (entity: string) => Promise<string[]>) {
+  const extra: string[] = [];
+  for (const r of refs) {
+    const m = r.match(ENTITY_ADMIN);
+    if (!m) continue;
+    for (const space of await spacesOf(m[1])) extra.push(`group:default/${space}-maintainers`);
+  }
+  return [...new Set([...refs, ...extra])];
+}
+
 /** Read spaces, role groups and repos from the catalog. */
 export async function readSpaces(getEntities: (filter: Record<string, string>) => Promise<any[]>): Promise<Space[]> {
   const systems = await getEntities({ kind: 'System', 'metadata.labels.everesto.live/level': 'space' });
   const groups = await getEntities({ kind: 'Group', 'spec.type': 'role' });
+  const entityAdmins = await getEntities({ kind: 'Group', 'metadata.labels.everesto.live/role': 'entity-admin' });
   const comps = await getEntities({ kind: 'Component' });
   const res = await getEntities({ kind: 'Resource' });
   return systems.map(sys => {
@@ -42,6 +56,10 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
     const members = Object.fromEntries(ROLES.map(r => [r,
       ((groups.find(g => g.metadata.name === `${name}-${r}`)?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase()),
     ])) as Space['members'];
+    // entity admins of this space's entity are maintainers here too
+    const admins = ((entityAdmins.find(g => g.metadata.name === `${sys.spec?.domain}-admins`)?.spec?.members ?? []) as string[])
+      .map(m => m.replace(/^user:(default\/)?/, '').toLowerCase());
+    members.maintainers = [...new Set([...members.maintainers, ...admins])];
     const inSpace = (e: any) => e.spec?.system === name && e.metadata?.annotations?.['everesto.live/protected'] !== 'true';
     return {
       name,

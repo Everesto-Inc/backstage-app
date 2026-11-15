@@ -18,7 +18,7 @@ import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './e
 import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 import { argoApp, podLogs, workloads } from './everestoK8s';
-import { readSpaces, syncGithubAccess } from './everestoAccess';
+import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -218,7 +218,13 @@ export const everestoInsightsPlugin = createBackendPlugin({
         const caller = async (req: express.Request) => {
           const credentials = await httpAuth.credentials(req, { allow: ['user'] });
           const u = await userInfo.getUserInfo(credentials);
-          return { refs: u.ownershipEntityRefs, who: u.userEntityRef.replace(/^user:default\//, '') };
+          // Entity admin (<entity>-admins) = maintainer of EVERY space of that entity → expand once, here,
+          // so every permission check (deploy, promote, prod secrets, members, tools) applies it.
+          const refs = await expandEntityAdmins(u.ownershipEntityRefs, async entity => (await catalog.getEntities(
+            { filter: { kind: 'System', 'spec.domain': entity, 'metadata.labels.everesto.live/level': 'space' }, fields: ['metadata.name'] },
+            { credentials: await auth.getOwnServiceCredentials() },
+          )).items.map(e => e.metadata.name));
+          return { refs, who: u.userEntityRef.replace(/^user:default\//, '') };
         };
         const fail = (res: express.Response, e: any) => {
           const status = e?.status ?? 500;

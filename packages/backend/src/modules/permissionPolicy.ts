@@ -41,7 +41,7 @@ const PRIVILEGED_GROUP = 'group:default/platform-team';
 // Running templates (Create pipeline): members of any DevOps space (developer and up) + platform-team.
 // The template's first step (everesto:space:require-member) then checks membership of the CHOSEN space.
 const TEMPLATE_RUN_PERMISSIONS = [actionExecutePermission, taskCreatePermission];
-const SPACE_MEMBER = /^group:default\/[a-z0-9-]+-(owners|maintainers|developers)$/;
+const SPACE_MEMBER = /^group:default\/[a-z0-9-]+-(maintainers|developers|admins)$/; // admins = entity admins
 
 const PRIVILEGED_PERMISSIONS = [
   // Scaffolder: editing templates stays with the platform team.

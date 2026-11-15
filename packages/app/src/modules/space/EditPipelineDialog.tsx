@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { Entity, stringifyEntityRef } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, identityApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import {
   Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
   FormControlLabel, TextField, Typography,
 } from '@material-ui/core';
 import DeleteForever from '@material-ui/icons/DeleteForever';
-import useAsync from 'react-use/esm/useAsync';
 import { useNavigate } from 'react-router-dom';
 import { TOOLS, toolState } from '../tools/tools';
+import { useSpaceRole } from './data';
 import { ToolLogo } from '../tools/ToolLogo';
 import { STATUS } from '../tools/charts';
 
@@ -29,15 +29,14 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const fetchApi = useApi(fetchApiRef);
   const catalogApi = useApi(catalogApiRef);
   const alertApi = useApi(alertApiRef);
-  const identityApi = useApi(identityApiRef);
   const navigate = useNavigate();
 
   const repo = entity.metadata.name;
   const project = String(entity.spec?.system ?? '');
   const sonarKey = entity.metadata.annotations?.['sonarqube.org/project-key'];
-  const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
-  const isPlatform = refs.includes('group:default/platform-team');
-  const canEdit = isPlatform || refs.includes(`group:default/${project}-owners`) || refs.includes(`group:default/${project}-maintainers`);
+  const role = useSpaceRole(project); // includes entity admins
+  const isPlatform = role.superAdmin;
+  const canEdit = role.maintainer;
   // platform systems (Backstage itself, Loop) are never deletable from Backstage
   const isProtected = ['backstage', 'loop'].includes(project) || entity.metadata.annotations?.['everesto.live/protected'] === 'true';
   const canDelete = !isProtected && isPlatform; // delete application: owner (super admin) only

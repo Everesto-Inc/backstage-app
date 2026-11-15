@@ -88,11 +88,27 @@ export const useIsProjectOwner = (_system: string) => {
 };
 
 /** maintainers + owners (+ platform-team): create deployments, promote, change tools. */
-export const useIsProjectMaintainer = (system: string) => {
+/**
+ * My role in a space. owner = platform-team (super admin) · entity admin (<entity>-admins) = maintainer of every
+ * space of that entity · maintainer / developer / viewer = the space's groups. Backend enforces the same rules.
+ */
+export const useSpaceRole = (system: string) => {
   const identityApi = useApi(identityApiRef);
-  const { value } = useAsync(() => identityApi.getBackstageIdentity(), []);
-  const refs = value?.ownershipEntityRefs ?? [];
-  return ['platform-team', `${system}-owners`, `${system}-maintainers`].some(g => refs.includes(`group:default/${g}`));
+  const catalogApi = useApi(catalogApiRef);
+  const { value } = useAsync(async () => {
+    const refs = (await identityApi.getBackstageIdentity()).ownershipEntityRefs;
+    const sys = system ? await catalogApi.getEntityByRef(`system:default/${system}`) : undefined;
+    return { refs, entity: String(sys?.spec?.domain ?? '') };
+  }, [system]);
+  const refs = value?.refs ?? [];
+  const has = (g: string) => refs.includes(`group:default/${g}`);
+  const superAdmin = has('platform-team');
+  const entityAdmin = !!value?.entity && has(`${value.entity}-admins`);
+  const maintainer = superAdmin || entityAdmin || has(`${system}-maintainers`);
+  const developer = maintainer || has(`${system}-developers`);
+  return { loaded: !!value, superAdmin, entityAdmin, maintainer, developer, member: developer || has(`${system}-viewers`) };
 };
+
+export const useIsProjectMaintainer = (system: string) => useSpaceRole(system).maintainer;
 
 export const refOf = (e: Entity) => stringifyEntityRef(e);

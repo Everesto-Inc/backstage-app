@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { alertApiRef, discoveryApiRef, fetchApiRef, identityApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography,
 } from '@material-ui/core';
@@ -7,6 +7,7 @@ import useAsync from 'react-use/esm/useAsync';
 import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { ago } from './insights';
+import { useSpaceRole } from './data';
 
 export type SetupStep = { n: number; env: 'once' | 'dev' | 'prod'; title: string; cmd: string; creates: string[]; explain: string };
 
@@ -43,11 +44,8 @@ const useEveresto = () => {
 };
 
 const useRoles = (project: string) => {
-  const identityApi = useApi(identityApiRef);
-  const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
-  const has = (g: string) => refs.includes(`group:default/${g}`);
-  const owner = has('platform-team'); // owner = super admin
-  return { owner, maintainer: owner || has(`${project}-maintainers`), member: owner || has(`${project}-maintainers`) || has(`${project}-developers`) };
+  const r = useSpaceRole(project); // includes entity admins
+  return { owner: r.superAdmin, maintainer: r.maintainer, member: r.developer };
 };
 
 export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {

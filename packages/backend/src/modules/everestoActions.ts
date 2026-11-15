@@ -24,6 +24,7 @@ import {
   ScmIntegrations,
 } from '@backstage/integration';
 import { Config } from '@backstage/config';
+import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import sodium from 'libsodium-wrappers';
 import { generateKeyPairSync } from 'node:crypto';
 
@@ -137,7 +138,7 @@ export function sshKeyPair(comment: string) {
 }
 
 /** First step of every space template: the user must be a member of the CHOSEN space (or platform-team). */
-function requireSpaceMember() {
+function requireSpaceMember(entityOf: (space: string) => Promise<string>) {
   return createTemplateAction({
     id: 'everesto:space:require-member',
     description: 'Fail unless the user is developer/maintainer/owner of the chosen space (or platform-team)',
@@ -150,7 +151,9 @@ function requireSpaceMember() {
     async handler(ctx) {
       const space = ctx.input.project.replace(/^system:(default\/)?/, '');
       const groups = (ctx.user?.entity?.relations ?? []).filter(r => r.type === 'memberOf').map(r => r.targetRef);
+      const entity = await entityOf(space);
       const ok = groups.includes('group:default/platform-team')
+        || (entity !== '' && groups.includes(`group:default/${entity}-admins`)) // entity admin = maintainer of all its spaces
         || ctx.input.roles.some(role => groups.includes(`group:default/${space}-${role}`));
       if (!ok) {
         throw new Error(`${ctx.user?.ref ?? 'you'} is not ${ctx.input.roles.join('/')} of space ${space} — ask an owner of ${space}`);
@@ -326,9 +329,13 @@ export const everestoActionsModule = createBackendModule({
   moduleId: 'everesto-actions',
   register(reg) {
     reg.registerInit({
-      deps: { scaffolder: scaffolderActionsExtensionPoint, config: coreServices.rootConfig },
-      async init({ scaffolder, config }) {
-        scaffolder.addActions(requireSpaceMember(), sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
+      deps: { scaffolder: scaffolderActionsExtensionPoint, config: coreServices.rootConfig, catalog: catalogServiceRef, auth: coreServices.auth },
+      async init({ scaffolder, config, catalog, auth }) {
+        // entity of a space (System.spec.domain) — entity admins may create in every space of their entity
+        const entityOf = async (space: string) => String((await catalog.getEntityByRef(
+          `system:default/${space}`, { credentials: await auth.getOwnServiceCredentials() },
+        ))?.spec?.domain ?? '');
+        scaffolder.addActions(requireSpaceMember(entityOf), sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
       },
     });
   },
