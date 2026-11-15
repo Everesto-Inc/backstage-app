@@ -13,6 +13,7 @@ import {
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
 import { Member, ROLES, ROLE_LABEL, Role, useIsProjectOwner, useMembers } from './data';
 import { PreviewDialog } from './PreviewDialog';
+import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
   owners: 'everything + invite/remove members, assign roles',
@@ -139,6 +140,7 @@ export const ProjectMembers = () => {
           'if this was their last project anywhere: they can no longer log in to Backstage',
         ]}
       />
+      <AccessSyncCard />
     </Box>
   );
 };
