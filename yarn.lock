@@ -13635,6 +13635,7 @@ __metadata:
     "@backstage/plugin-signals-backend": "npm:^0.3.20"
     "@backstage/plugin-techdocs-backend": "npm:^2.4.0"
     "@backstage/plugin-user-settings-backend": "npm:^0.4.8"
+    "@kubernetes/client-node": "npm:1.4.0"
     "@types/express": "npm:^4"
     "@types/libsodium-wrappers": "npm:^0.8.2"
     app: "link:../app"

@@ -46,6 +46,10 @@ export type Insights = {
   lastDeploy?: { at: string; message: string; url: string };
   envs?: Partial<Record<"dev" | "prod", { tag?: string; at?: string; message?: string; url?: string }>>;
   gitopsRepo?: string;
+  argo?: Partial<Record<'dev' | 'prod', {
+    exists: boolean; sync?: string; health?: string; revision?: string;
+    lastSyncAt?: string; lastSyncPhase?: string; lastSyncMessage?: string; images?: string[];
+  } | null>>;
   code?: {
     visibility: string; defaultBranch: string; pushedAt: string;
     openPulls: { number: number; title: string; author: string; createdAt: string; url: string; draft: boolean }[];

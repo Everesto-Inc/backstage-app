@@ -17,6 +17,7 @@ import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
+import { argoApp } from './everestoK8s';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -140,6 +141,9 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
     const c = dep.json?.[0];
     envs[env] = { tag: k.match(/newTag:\s*(\S+)/)?.[1], at: c?.commit?.committer?.date, message: c?.commit?.message?.split('\n')[0], url: c?.html_url };
   }
+  // live ArgoCD status (read-only cluster access) — undefined outside the cluster or without RBAC
+  const argo: Record<string, unknown> = {};
+  for (const env of Object.keys(envs)) argo[env] = await argoApp(`${repo}-${env}`);
   const lastDeploy = envs.dev?.at ? { at: envs.dev.at, message: envs.dev.message ?? '', url: envs.dev.url ?? '' } : undefined;
 
   return {
@@ -154,6 +158,7 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
     sonar: sonarKey ? await sonarMeasures(config, sonarKey).catch(e => ({ exists: true, error: String(e) })) : { exists: false },
     lastDeploy,
     envs: Object.keys(envs).length ? envs : undefined,
+    argo: Object.keys(argo).length ? argo : undefined,
     code,
     images: runs.filter(r => r.branch === 'main' && r.conclusion === 'success' && r.event !== 'pull_request').slice(0, 5)
       .map(r => ({ tag: `sha-${r.sha}`, at: r.createdAt, title: r.title, url: r.url })),

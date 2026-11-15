@@ -144,13 +144,27 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   const repo = insightsTarget(entity).repo;
   const dev = d?.envs?.dev;
   const prod = d?.envs?.prod;
+  const argoBadge = (e: 'dev' | 'prod') => {
+    const a = d?.argo?.[e];
+    if (a === undefined || a === null) return null; // no cluster access (local) → no badge
+    if (!a.exists) return <Box mt={0.5}><Muted>ArgoCD app {repo}-{e} not created yet</Muted></Box>;
+    const good = a.sync === 'Synced' && a.health === 'Healthy';
+    const color = good ? STATUS.good : a.health === 'Degraded' || a.lastSyncPhase === 'Failed' || a.lastSyncPhase === 'Error' ? STATUS.critical : STATUS.warning;
+    return (
+      <Tooltip title={a.lastSyncMessage ?? ''}>
+        <Box mt={0.5} style={{ fontSize: 13, fontWeight: 600, color }}>
+          {a.sync ?? '?'} · {a.health ?? '?'}{a.lastSyncAt ? <span style={{ fontWeight: 400, opacity: 0.8 }}> · synced {ago(a.lastSyncAt)}</span> : null}
+        </Box>
+      </Tooltip>
+    );
+  };
   const env = (x?: { tag?: string; at?: string; url?: string }) =>
     x?.tag ? <span><code>{x.tag}</code> · {x.url ? <Link href={x.url} target="_blank" rel="noopener">{ago(x.at)}</Link> : ago(x.at)}</span> : <Muted>not created — first Promote creates it</Muted>;
   return (
     <>
       <div className={c.metrics}>
-        <Metric label={`dev · ns ${project}-dev · manual sync`}>{env(dev)}</Metric>
-        <Metric label={`prod · ns ${project}-prod · manual sync`}>{env(prod)}</Metric>
+        <Metric label={`dev · ns ${project}-dev · manual sync`}><Box>{env(dev)}{argoBadge('dev')}</Box></Metric>
+        <Metric label={`prod · ns ${project}-prod · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
         <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
       </div>
       <Box px={3} py={1.5}>

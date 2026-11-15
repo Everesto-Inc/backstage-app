@@ -499,7 +499,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/kubernetes-label-selector: app=${repo}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
