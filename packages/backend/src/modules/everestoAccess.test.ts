@@ -4,8 +4,7 @@ describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
     expect(permissionFor('developers', 'ci')).toBe('push');
     expect(permissionFor('maintainers', 'ci')).toBe('maintain');
-    expect(permissionFor('owners', 'ci')).toBe('maintain');
-    for (const r of ['developers', 'maintainers', 'owners'] as const) {
+    for (const r of ['developers', 'maintainers'] as const) {
       for (const k of ['ci', 'gitops'] as const) expect(permissionFor(r, k)).not.toBe('admin');
     }
   });

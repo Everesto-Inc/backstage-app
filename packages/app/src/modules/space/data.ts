@@ -14,10 +14,10 @@ import useAsync from 'react-use/esm/useAsync';
  *   Roles                     = Groups <river>-owners / -maintainers / -developers / -viewers
  */
 
-export const ROLES = ['owners', 'maintainers', 'developers', 'viewers'] as const;
+// owner = platform-team (super admin) — not a per-space role
+export const ROLES = ['maintainers', 'developers', 'viewers'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABEL: Record<Role, string> = {
-  owners: 'Owner',
   maintainers: 'Maintainer',
   developers: 'Developer',
   viewers: 'Viewer',
@@ -79,12 +79,12 @@ export const useMembers = (system: string) => {
   }, [system]);
 };
 
-/** Owners of a project (or platform admins) may manage members and remove things. */
-export const useIsProjectOwner = (system: string) => {
+/** Owner = platform-team (super admin): delete applications, make maintainers, everything. */
+export const useIsProjectOwner = (_system: string) => {
   const identityApi = useApi(identityApiRef);
   const { value } = useAsync(() => identityApi.getBackstageIdentity(), []);
   const refs = value?.ownershipEntityRefs ?? [];
-  return refs.includes('group:default/platform-team') || refs.includes(`group:default/${system}-owners`);
+  return refs.includes('group:default/platform-team'); // owner = super admin
 };
 
 /** maintainers + owners (+ platform-team): create deployments, promote, change tools. */

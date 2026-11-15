@@ -114,16 +114,18 @@ enforce in the permission policy and to audit.
 | Entity | `<animal>-admins` e.g. `blackbuck-admins` | create/delete **projects** (spaces) in their entity, name space owners |
 | Space | roles below | work inside the space |
 
-### Space roles
+### Space roles (decided 2026-11-16)
 
-| Role | Can |
-|---|---|
-| `viewer` | see everything in the space |
-| `developer` | view + push code, run pipelines, create applications. **Cannot delete.** |
-| `maintainer` | developer + delete applications, change tool settings |
-| `owner` | maintainer + invite/remove members, assign roles |
+| Role | Who | Can |
+|---|---|---|
+| **owner** | **platform-team** (super admin) — not a per-space group | everything, every space: delete applications, make maintainers, create/delete spaces and entities, change Backstage |
+| **maintainer** (`<space>-maintainers`) | manager of ONE space | developer + Create deployment, Deploy, **Promote to prod**, **prod secrets**, change tools, delete deployments, invite developers/viewers |
+| **developer** (`<space>-developers`) | team member | Create pipeline (CI), push code **via pull request only**, dev secrets, Run build — no prod, no delete |
+| **viewer** (`<space>-viewers`) | read-only | see everything in the space (names of secrets, never values) |
 
-A team **manager** = `maintainer` (includes developer rights).
+Platform entities (domain `platform`, annotation `everesto.live/protected`) can't be deleted from Backstage by anyone.
+GitHub (access sync, Members tab → Preview/Apply): teams `<space>-developers` → push on CI repos,
+`<space>-maintainers` → maintain on CI + push on gitops; nobody admin; `main` = PR only (ruleset `everesto-main`).
 
 ### Access follows the role into every tool
 

@@ -11,14 +11,13 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
-import { Member, ROLES, ROLE_LABEL, Role, useIsProjectOwner, useMembers } from './data';
+import { Member, ROLES, ROLE_LABEL, Role, useIsProjectMaintainer, useIsProjectOwner, useMembers } from './data';
 import { PreviewDialog } from './PreviewDialog';
 import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
-  owners: 'everything + invite/remove members, assign roles',
-  maintainers: 'developer + delete applications, change tool settings',
-  developers: 'push code, run pipelines, create applications — no delete',
+  maintainers: 'space manager: deployments, promote to prod, prod secrets, tools, invite developers/viewers',
+  developers: 'push code via pull request, create CI pipelines, dev secrets — no prod, no delete',
   viewers: 'read only',
 };
 
@@ -54,7 +53,9 @@ export const ProjectMembers = () => {
   const { entity } = useEntity();
   const project = entity.metadata.name;
   const { value, loading, error } = useMembers(project);
-  const isOwner = useIsProjectOwner(project);
+  // maintainers (space managers) invite developers/viewers; only owners (super admin) make maintainers
+  const isSuperAdmin = useIsProjectOwner(project);
+  const isOwner = useIsProjectMaintainer(project);
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Member | undefined>();
   const [email, setEmail] = useState('');
@@ -125,7 +126,7 @@ export const ProjectMembers = () => {
         <Box display="flex" style={{ gap: 12 }}>
           <TextField label="Email" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
           <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
-            {ROLES.map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
+            {ROLES.filter(r => isSuperAdmin || r !== 'maintainers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
           </TextField>
         </Box>
       </PreviewDialog>

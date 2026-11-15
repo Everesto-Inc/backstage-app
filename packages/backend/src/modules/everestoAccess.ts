@@ -4,7 +4,7 @@
  * Per DevOps space <space> (System labelled everesto.live/level=space):
  *   GitHub teams  <space>-developers  → push     on the space's CI repos (Components)
  *                 <space>-maintainers → maintain on CI repos, push on its <app>-gitops repos
- *                 <space>-owners      → maintain on CI repos, push on its <app>-gitops repos
+ *   (owner = platform-team = GitHub org owners — no per-space owner team)
  *   Nobody gets admin → nobody can delete a repo or change branch protection.
  *   Users not yet in the org are INVITED (with their team). Users removed from a Backstage group are removed
  *   from that GitHub TEAM (not from the org — they may belong to other spaces).
@@ -17,7 +17,7 @@ import { gh, githubToken } from './everestoActions';
 import { OWNER } from './everestoManage';
 
 type Perm = 'pull' | 'push' | 'maintain';
-const ROLES = ['developers', 'maintainers', 'owners'] as const;
+const ROLES = ['developers', 'maintainers'] as const; // owner = platform-team = org owners
 const RULESET = 'everesto-main';
 
 export type AccessReport = { dryRun: boolean; actions: string[]; warnings: string[] };

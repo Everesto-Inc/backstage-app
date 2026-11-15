@@ -40,7 +40,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const canEdit = isPlatform || refs.includes(`group:default/${project}-owners`) || refs.includes(`group:default/${project}-maintainers`);
   // platform systems (Backstage itself, Loop) are never deletable from Backstage
   const isProtected = ['backstage', 'loop'].includes(project) || entity.metadata.annotations?.['everesto.live/protected'] === 'true';
-  const canDelete = !isProtected && (isPlatform || refs.includes(`group:default/${project}-owners`));
+  const canDelete = !isProtected && isPlatform; // delete application: owner (super admin) only
 
   // repository only (no CI): nothing to switch, just Delete
   const tools = repoOnly ? [] : TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));

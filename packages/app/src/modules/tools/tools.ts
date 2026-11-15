@@ -137,7 +137,7 @@ export const canRemoveTools = (entity: Entity, ownershipRefs: string[]) => {
   const system = (entity.spec?.system as string | undefined) ?? '';
   return (
     ownershipRefs.includes('group:default/platform-team') ||
-    (system !== '' && ownershipRefs.includes(`group:default/${system}-owners`))
+    (system !== '' && ownershipRefs.includes(`group:default/${system}-maintainers`))
   );
 };
 

@@ -46,7 +46,7 @@ const useRoles = (project: string) => {
   const identityApi = useApi(identityApiRef);
   const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
   const has = (g: string) => refs.includes(`group:default/${g}`);
-  const owner = has('platform-team') || has(`${project}-owners`);
+  const owner = has('platform-team'); // owner = super admin
   return { owner, maintainer: owner || has(`${project}-maintainers`), member: owner || has(`${project}-maintainers`) || has(`${project}-developers`) };
 };
 

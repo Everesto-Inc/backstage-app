@@ -9,7 +9,7 @@
  *   POST /api/everesto/apps/:repo/delete  { confirm: "<repo>" }                    owners only
  *     → SonarQube project, CD repo <repo>-gitops, catalog entry, and finally the GitHub repo (Actions + secrets go with it).
  *
- * Who: the signed-in user must own the app's project (group <project>-owners, + <project>-maintainers
+ * Who: owner = platform-team (super admin, everything); maintainer = manager of one space (<space>-maintainers)
  * for tool changes) or be in platform-team. The repo's own catalog-info.yaml (read from GitHub, not
  * from the request) decides the project and the SonarQube key.
  */
@@ -194,8 +194,8 @@ export async function deleteApp(
   const token = await githubToken(config, OWNER);
   const { info, project, sonarKey } = await appInfo(token, repo);
   if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
-  if (!allowed(refs, project, ['owners'])) {
-    throw Object.assign(new Error(`only owners of ${project} can delete its applications`), { status: 403 });
+  if (!allowed(refs, project, [])) { // owner = platform-team (super admin) only
+    throw Object.assign(new Error(`only owners (platform admins) can delete applications`), { status: 403 });
   }
   const done: string[] = [];
   const warn: string[] = [];
