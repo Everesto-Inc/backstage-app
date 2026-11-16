@@ -145,7 +145,7 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
   }
   // live ArgoCD status (read-only cluster access) — undefined outside the cluster or without RBAC
   const argo: Record<string, unknown> = {};
-  for (const env of Object.keys(envs)) argo[env] = await argoApp(`${repo}-${env}`);
+  for (const env of Object.keys(envs)) argo[env] = await argoApp(`${env}-${repo}`);
   const lastDeploy = envs.dev?.at ? { at: envs.dev.at, message: envs.dev.message ?? '', url: envs.dev.url ?? '' } : undefined;
 
   return {
@@ -385,7 +385,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const project = await member(req, repo);
             const envs = await Promise.all((['dev', 'prod'] as const).map(async e => ({
               env: e,
-              argo: await argoApp(`${repo}-${e}`),
+              argo: await argoApp(`${e}-${repo}`),
               k8s: await workloads(`${project}-${e}`, repo),
             })));
             res.json({ clusterAccess: envs.some(e => e.k8s !== undefined), envs });

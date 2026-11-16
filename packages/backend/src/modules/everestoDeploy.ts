@@ -162,7 +162,7 @@ spec:
 const application = (repo: string, project: string, env: Env) => `apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ${repo}-${env}
+  name: ${env}-${repo}
   namespace: argocd
   labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
   finalizers: [resources-finalizer.argocd.argoproj.io]   # deleting the app removes its pods too
@@ -318,8 +318,8 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean): 
   const gitops = `${repo}-gitops`;
   const dev = ns(project, 'dev');
   const prod = ns(project, 'prod');
-  const sync = (e: Env) => `sudo kubectl -n argocd patch application ${repo}-${e} --type merge -p '{"operation":{"sync":{}}}'`;
-  const check = (e: Env) => `sudo kubectl -n argocd get application ${repo}-${e}\nsudo kubectl -n ${ns(project, e)} get pods,externalsecret,secret`;
+  const sync = (e: Env) => `sudo kubectl -n argocd patch application ${e}-${repo} --type merge -p '{"operation":{"sync":{}}}'`;
+  const check = (e: Env) => `sudo kubectl -n argocd get application ${e}-${repo}\nsudo kubectl -n ${ns(project, e)} get pods,externalsecret,secret`;
   return [
     {
       n: 1, env: 'once', title: 'Tenant node label (once per cluster)',
@@ -340,26 +340,26 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean): 
       explain: `Tells ESO where dev secrets come from: Infisical project ${gitops}, environment dev, path /, using the login of step 2. Its condition allows ONLY namespace ${dev} to use it.`,
     },
     {
-      n: 4, env: 'dev', title: `ArgoCD project ${project} + application ${repo}-dev`,
-      cmd: `# AUTOMATIC — same tenant file; the app appears in ArgoCD ~3 min after Create deployment.\nsudo kubectl -n argocd get application ${repo}-dev`,
-      creates: [`AppProject ${project} (ns argocd)`, `Application ${repo}-dev (ns argocd)`],
-      explain: `AppProject ${project} = guard rails: only *-gitops repos, only namespaces ${dev} / ${prod}. Application ${repo}-dev = an instruction to ArgoCD: "take folder apps/dev of ${gitops} and put it into ${dev}, sync manually". It creates no pods yet — it appears as a tile in ArgoCD.`,
+      n: 4, env: 'dev', title: `ArgoCD project ${project} + application dev-${repo}`,
+      cmd: `# AUTOMATIC — same tenant file; the app appears in ArgoCD ~3 min after Create deployment.\nsudo kubectl -n argocd get application dev-${repo}`,
+      creates: [`AppProject ${project} (ns argocd)`, `Application dev-${repo} (ns argocd)`],
+      explain: `AppProject ${project} = guard rails: only *-gitops repos, only namespaces ${dev} / ${prod}. Application dev-${repo} = an instruction to ArgoCD: "take folder apps/dev of ${gitops} and put it into ${dev}, sync manually". It creates no pods yet — it appears as a tile in ArgoCD.`,
     },
     {
-      n: 5, env: 'dev', title: `Sync ${repo}-dev (or ArgoCD UI → Sync)`,
+      n: 5, env: 'dev', title: `Sync dev-${repo} (or ArgoCD UI → Sync)`,
       cmd: sync('dev'),
       creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${dev}: Backstage may READ this namespace — CD tab)`],
       explain: `ArgoCD applies everything in apps/dev: the namespace first, then Deployment (image + tag, port, /health probes, memory), Service (port 80 → container port) and ExternalSecret. ESO sees the ExternalSecret and creates Secret ${repo} from Infisical dev; the pod gets every key as an environment variable. Run again after every "Deploy to dev".`,
     },
     { n: 6, env: 'dev', title: 'Check dev', cmd: check('dev'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
     {
-      n: 7, env: 'prod', title: `Prod secret store + application ${repo}-prod — only after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}`,
-      cmd: `# AUTOMATIC on the first Promote — the prod store + app join the tenant file.\nsudo kubectl -n argocd get application ${repo}-prod`,
-      creates: [`ClusterSecretStore infisical-${repo}-prod (cluster-wide)`, `Application ${repo}-prod (ns argocd)`],
+      n: 7, env: 'prod', title: `Prod secret store + application prod-${repo} — only after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}`,
+      cmd: `# AUTOMATIC on the first Promote — the prod store + app join the tenant file.\nsudo kubectl -n argocd get application prod-${repo}`,
+      creates: [`ClusterSecretStore infisical-${repo}-prod (cluster-wide)`, `Application prod-${repo} (ns argocd)`],
       explain: `Same as steps 3 + 4 for prod: the store reads Infisical environment prod and only namespace ${prod} may use it; the Application takes apps/prod into ${prod}. The file exists only after the first promote PR is merged (404 before). Set the real prod secrets in the Secrets tab before syncing.`,
     },
     {
-      n: 8, env: 'prod', title: `Sync ${repo}-prod (or ArgoCD UI → Sync)`,
+      n: 8, env: 'prod', title: `Sync prod-${repo} (or ArgoCD UI → Sync)`,
       cmd: sync('prod'),
       creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${prod}: Backstage may READ this namespace — CD tab)`],
       explain: `Like step 5, for prod. Run again after every merged "Promote to prod" PR.`,
@@ -407,8 +407,8 @@ flowchart TB
     IP[(env prod)]
   end
   subgraph argo[ns argocd]
-    AD[Application ${repo}-dev]
-    AP[Application ${repo}-prod]
+    AD[Application dev-${repo}]
+    AP[Application prod-${repo}]
   end
   subgraph es[ns external-secrets]
     L[Secret infisical-${repo}-auth]
@@ -434,7 +434,7 @@ flowchart TB
 | \`infisical-${repo}-auth\` | Secret (Infisical login) | external-secrets | you — step 2 |
 | \`infisical-${repo}-dev\` / \`-prod\` | ClusterSecretStore | — (cluster-wide) | you — steps 3 / 7 |
 | \`${project}\` | AppProject | argocd | you — step 4 |
-| \`${repo}-dev\` / \`${repo}-prod\` | Application | argocd | you — steps 4 / 7 |
+| \`dev-${repo}\` / \`prod-${repo}\` | Application | argocd | you — steps 4 / 7 |
 | \`${dev}\` / \`${prod}\` | Namespace | — | ArgoCD on Sync |
 | \`${repo}\` | Deployment, Service, ExternalSecret | ${dev} / ${prod} | ArgoCD on Sync |
 | \`${repo}\` | Secret (the app's secrets) | ${dev} / ${prod} | ESO, from Infisical |
@@ -629,14 +629,14 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
   // 4. ArgoCD objects via git (app-of-apps): login (ESO), secret store, Application <repo>-dev — no kubectl per app
   const esoSlug = await rotateEsoLogin(config, repo, who);
   await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev'], inf.projectSlug, inf.url), `tenants: ${project}/${repo} dev (Backstage, by ${who})`, inf.url, esoSlug);
-  done.push(`ArgoCD app ${repo}-dev + its secret store + login: committed to ${PLATFORM_REPO}/platform/tenants — ArgoCD creates them within ~3 min, then click Sync`);
+  done.push(`ArgoCD app dev-${repo} + its secret store + login: committed to ${PLATFORM_REPO}/platform/tenants — ArgoCD creates them within ~3 min, then click Sync`);
   const commands: { title: string; cmd: string; secret?: boolean }[] = [];
   if (!(await argoApp('platform-tenants'))?.exists) {
     commands.push({
@@ -659,9 +659,9 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
   const sha = await commit(token, gitops, `dev: image → ${tag} (Backstage, by ${who})`,
     [{ path: 'apps/dev/kustomization.yaml', content: dev.replace(/(newTag:\s*)\S+/, `$1${tag}`) }]);
   return {
-    from: tagOf(dev), to: tag, commit: sha, argocdApp: `${repo}-dev`,
+    from: tagOf(dev), to: tag, commit: sha, argocdApp: `dev-${repo}`,
     commands: [
-      { title: `1. Sync ${repo}-dev (or ArgoCD UI → Sync)`, cmd: `sudo kubectl -n argocd patch application ${repo}-dev --type merge -p '{"operation":{"sync":{}}}'` },
+      { title: `1. Sync dev-${repo} (or ArgoCD UI → Sync)`, cmd: `sudo kubectl -n argocd patch application dev-${repo} --type merge -p '{"operation":{"sync":{}}}'` },
       { title: '2. Check (after ~30 s)', cmd: `sudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` },
     ],
   };
@@ -707,19 +707,19 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     files.push({ path: 'docs/index.md', content: runbook(repo, project, true) });
   }
 
-  const sync = `sudo kubectl -n argocd patch application ${repo}-prod --type merge -p '{"operation":{"sync":{}}}'`;
+  const sync = `sudo kubectl -n argocd patch application prod-${repo} --type merge -p '{"operation":{"sync":{}}}'`;
   const check = `sudo kubectl -n ${ns(project, 'prod')} get pods,externalsecret,secret`;
   if (!prod) {
     commands.push(
       { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
       { title: `2. Set the real prod secrets: Backstage → ${gitops} → Secrets → prod (they are CHANGE_ME)`, cmd: '# Backstage → Secrets tab → prod' },
-      { title: `3. ArgoCD app ${repo}-prod appears by itself (~3 min after this promote) → Sync — creates namespace ${ns(project, 'prod')}, Deployment, Service, ExternalSecret`, cmd: sync },
+      { title: `3. ArgoCD app prod-${repo} appears by itself (~3 min after this promote) → Sync — creates namespace ${ns(project, 'prod')}, Deployment, Service, ExternalSecret`, cmd: sync },
       { title: '4. Check (after ~30 s)', cmd: check },
     );
   } else {
     commands.push(
       { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
-      { title: `2. Sync ${repo}-prod (or ArgoCD UI → Sync)`, cmd: sync },
+      { title: `2. Sync prod-${repo} (or ArgoCD UI → Sync)`, cmd: sync },
       { title: '3. Check (after ~30 s)', cmd: check },
     );
   }

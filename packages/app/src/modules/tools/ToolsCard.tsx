@@ -82,7 +82,7 @@ const CdToolsCard = () => {
   const tool = (id: string) => CD_TOOLS.find(t => t.id === id)!;
   const [editing, setEditing] = useState(false);
   const rows: { tool: Tool; label: string; note: string; on: boolean }[] = [
-    { tool: tool('cd'), label: 'Active', note: `apps ${repo}-dev${d?.envs?.prod ? ` / ${repo}-prod` : ''} · manual sync`, on: true },
+    { tool: tool('cd'), label: 'Active', note: `apps dev-${repo}${d?.envs?.prod ? ` / prod-${repo}` : ''} · manual sync`, on: true },
     { tool: tool('config'), label: 'Not used', note: 'excluded while ArgoCD deploys this app (one deployment tool per app)', on: false },
     { tool: tool('secrets'), label: 'Always on', note: `Infisical project ${repo}-gitops → ESO → Secret ${repo}`, on: true },
     { tool: tool('monitoring'), label: 'Coming later', note: 'dashboards and alerts', on: false },

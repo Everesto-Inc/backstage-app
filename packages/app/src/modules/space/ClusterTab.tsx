@@ -77,13 +77,13 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
                 <Typography variant="h6">{env} · ns {project}-{env}</Typography>
                 {!argo?.exists ? (
                   <Typography variant="body2" color="textSecondary">
-                    ArgoCD app {repo}-{env} not created yet{env === 'prod' ? ' — first Promote to prod, then the setup commands (Secrets tab)' : ''}.
+                    ArgoCD app {env}-{repo} not created yet{env === 'prod' ? ' — first Promote to prod, then the setup commands (Secrets tab)' : ''}.
                   </Typography>
                 ) : (
                   <>
                     <Grid container spacing={2} style={{ marginTop: 4 }}>
                       <Grid item xs={12} md={3}>
-                        <StatTile label={`ArgoCD ${repo}-${env}`} value={<span style={{ fontSize: 18, color: color(synced && healthy, argo.health === 'Degraded' || argo.lastSyncPhase === 'Failed') }}>{argo.sync ?? '?'} · {argo.health ?? '?'}</span>}
+                        <StatTile label={`ArgoCD ${env}-${repo}`} value={<span style={{ fontSize: 18, color: color(synced && healthy, argo.health === 'Degraded' || argo.lastSyncPhase === 'Failed') }}>{argo.sync ?? '?'} · {argo.health ?? '?'}</span>}
                           delta={argo.lastSyncAt ? `last sync ${dur(Math.round((Date.now() - Date.parse(argo.lastSyncAt)) / 1000))} ago${argo.lastSyncPhase ? ` · ${argo.lastSyncPhase}` : ''}` : 'never synced'} />
                       </Grid>
                       <Grid item xs={12} md={3}>

@@ -147,7 +147,7 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   const argoBadge = (e: 'dev' | 'prod') => {
     const a = d?.argo?.[e];
     if (a === undefined || a === null) return null; // no cluster access (local) → no badge
-    if (!a.exists) return <Box mt={0.5}><Muted>ArgoCD app {repo}-{e} not created yet</Muted></Box>;
+    if (!a.exists) return <Box mt={0.5}><Muted>ArgoCD app {e}-{repo} not created yet</Muted></Box>;
     const good = a.sync === 'Synced' && a.health === 'Healthy';
     const color = good ? STATUS.good : a.health === 'Degraded' || a.lastSyncPhase === 'Failed' || a.lastSyncPhase === 'Error' ? STATUS.critical : STATUS.warning;
     return (

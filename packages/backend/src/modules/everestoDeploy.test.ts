@@ -11,10 +11,10 @@ describe('setupCommands', () => {
   it('uses the app, gitops repo and namespaces', () => {
     const all = steps.map(s => s.cmd).join('\n');
     expect(all).toContain('platform/tenants/orchid/python-backend.yaml');   // app-of-apps: no kubectl apply per app
-    expect(all).toContain('application python-backend-prod');
+    expect(all).toContain('application prod-python-backend');   // env-first ArgoCD names
     expect(all).toContain('-n orchid-dev');
     expect(all).toContain('-n orchid-prod');
-    expect(all).toContain('application python-backend-dev');
+    expect(all).toContain('application dev-python-backend');
   });
 
   it('never contains a secret — the ESO login is automatic (Infisical platform-eso → ESO)', () => {

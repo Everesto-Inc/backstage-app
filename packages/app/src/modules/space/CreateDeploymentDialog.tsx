@@ -113,7 +113,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               </Typography>
             )}
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
-              Then in ArgoCD: <b>{repo}-dev</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates {project}-prod on first use).
+              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates {project}-prod on first use).
               {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev.</>}
             </Typography>
           </>
@@ -152,7 +152,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
                 <Box component="ol" pl={3} m={0} style={{ lineHeight: 1.7, fontSize: 14 }}>
                   <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above + read-only identity eso-{repo}</li>
                   <li>public repo <b>Everesto-Inc/{repo}-gitops</b> — apps/dev with the newest image of {repo} (no secret values)</li>
-                  <li>kubectl commands for you: ArgoCD project <b>{project}</b> + app <b>{repo}-dev</b>, secret store</li>
+                  <li>kubectl commands for you: ArgoCD project <b>{project}</b> + app <b>dev-{repo}</b>, secret store</li>
                 </Box>
               </Box>
             )}

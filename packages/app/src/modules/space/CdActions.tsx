@@ -97,7 +97,7 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
               {dialog === 'deploy' && (
                 <>
                   <Typography variant="body2" paragraph>
-                    Writes the chosen image into <code>{repo}-gitops/apps/dev</code>. Nothing runs until you click <b>Sync</b> on <b>{repo}-dev</b> in ArgoCD.
+                    Writes the chosen image into <code>{repo}-gitops/apps/dev</code>. Nothing runs until you click <b>Sync</b> on <b>dev-{repo}</b> in ArgoCD.
                     Now on dev: <code>{devTag ?? '—'}</code>
                   </Typography>
                   <TextField select fullWidth variant="outlined" size="small" label="Image (last successful builds on main)" value={tag} onChange={e => setTag(e.target.value)}>
@@ -113,7 +113,7 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
                 <Typography variant="body2">
                   Opens a pull request in <code>{repo}-gitops</code>: prod <code>{prodTag ?? '(not created yet)'}</code> → <code>{devTag}</code>.
                   {!prodTag && <> First promote: also creates <b>apps/prod</b> (namespace {project}-prod) and the prod secrets in Infisical <code>{repo}-gitops</code> with the same names (values CHANGE_ME).</>}
-                  {' '}After merge: <b>Sync</b> on <b>{repo}-prod</b> in ArgoCD.
+                  {' '}After merge: <b>Sync</b> on <b>prod-{repo}</b> in ArgoCD.
                 </Typography>
               )}
               {dialog === 'delete' && (
@@ -200,7 +200,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
     } finally { setBusy(false); }
   };
   const rows: [string, string, boolean][] = [
-    ['ArgoCD', `active — ${repo}-dev${hasProd ? ` / ${repo}-prod` : ''}, manual sync`, true],
+    ['ArgoCD', `active — dev-${repo}${hasProd ? ` / prod-${repo}` : ''}, manual sync`, true],
     ['Ansible', 'not used — excluded while ArgoCD deploys this app', false],
     ['Infisical', `always on — project ${gitops} → ESO → Secret ${repo}`, true],
     ['Grafana', 'coming later', false],
