@@ -163,7 +163,14 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   return (
     <>
       <div className={c.metrics}>
-        <Metric label={`dev · ns ${project}-dev · manual sync`}><Box>{env(dev)}{argoBadge('dev')}</Box></Metric>
+        <Metric label={`dev · ns ${project}-dev · manual sync`}>
+          <Box>
+            {env(dev)}{argoBadge('dev')}
+            {entity.metadata.annotations?.['everesto.live/url-dev'] && (
+              <Box mt={0.5}><Link href={entity.metadata.annotations['everesto.live/url-dev']} target="_blank" rel="noopener">{entity.metadata.annotations['everesto.live/url-dev'].replace('https://', '')}</Link></Box>
+            )}
+          </Box>
+        </Metric>
         <Metric label={`prod · ns ${project}-prod · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
         <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
       </div>

@@ -1,4 +1,4 @@
-import { applySecretsCmd, setupCommands } from './everestoDeploy';
+import { applySecretsCmd, devHost, setupCommands } from './everestoDeploy';
 
 describe('setupCommands', () => {
   const steps = setupCommands('python-backend', 'orchid', false);
@@ -35,5 +35,12 @@ describe('applySecretsCmd', () => {
       'sudo kubectl -n orchid-prod annotate externalsecret python-backend force-sync=$(date +%s) --overwrite\n' +
       'sudo kubectl -n orchid-prod rollout restart deployment python-backend',
     );
+  });
+});
+
+describe('devHost', () => {
+  it('is one level under dev.everesto.live (covered by the wildcard certificate)', () => {
+    expect(devHost('python-backend')).toBe('python-backend.dev.everesto.live');
+    expect(devHost('python-backend').split('.').length).toBe(4);
   });
 });

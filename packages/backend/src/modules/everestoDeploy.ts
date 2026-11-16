@@ -31,14 +31,15 @@ export type DeploymentInput = {
   memoryMi: number;
   replicas: number;
   healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
+  publicUrl?: boolean; // dev: ingress <repo>.dev.everesto.live (via alb wildcard → in-cluster Traefik)
 };
 
 // ---------- manifests ----------
 
-const kustomization = (image: string, tag: string, project: string, env: Env) => `apiVersion: kustomize.config.k8s.io/v1beta1
+const kustomization = (image: string, tag: string, project: string, env: Env, ingress = false) => `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${ns(project, env)}
-resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml]
+resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml${ingress ? ', ingress.yaml' : ''}]
 images:
   - name: ${image}
     newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
@@ -97,6 +98,24 @@ metadata:
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: backstage-read }
 subjects:
   - { kind: ServiceAccount, name: backstage, namespace: prod-backstage }
+`;
+
+/** dev URL: https://<repo>.dev.everesto.live (app names are unique in the org → one wildcard cert covers all). */
+export const devHost = (repo: string) => `${repo}.dev.everesto.live`;
+const ingress = (repo: string) => `# https://${devHost(repo)} — alb (TLS *.dev.everesto.live) → in-cluster Traefik → this Ingress → Service ${repo}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${repo}
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ${devHost(repo)}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: ${repo}, port: { number: 80 } } }
 `;
 
 const service = (repo: string, port: number) => `apiVersion: v1
@@ -494,7 +513,8 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } },
   });
   await commit(token, gitops, `CD for ${repo}: apps/dev (Backstage, by ${who})`, [
-    { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, project, 'dev') },
+    { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, project, 'dev', d.publicUrl !== false) },
+    ...(d.publicUrl !== false ? [{ path: 'apps/dev/ingress.yaml', content: ingress(repo) }] : []),
     { path: 'apps/dev/namespace.yaml', content: namespace(project, 'dev') },
     { path: 'apps/dev/rolebinding-backstage.yaml', content: roleBinding(repo) },
     { path: 'apps/dev/deployment.yaml', content: deployment(repo, image, project, 'dev', d) },
@@ -502,17 +522,17 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
     { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project)}---\n${application(repo, project, 'dev')}` },
     { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url)}` },
-    { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
+    { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
     { path: 'docs/index.md', content: runbook(repo, project, false) },
     { path: 'mkdocs.yml', content: mkdocs(repo) },
     { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },
   ]);
-  done.push(`repo ${OWNER}/${gitops} (apps/dev, image ${last.tag})`);
+  done.push(`repo ${OWNER}/${gitops} (apps/dev, image ${last.tag})${d.publicUrl !== false ? ` — URL https://${devHost(repo)} after Sync` : ''}`);
 
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD ${repo}-dev (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: ${repo}-dev\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
@@ -577,7 +597,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     files.push(
       {
         path: 'apps/prod/kustomization.yaml',
-        content: dev.replace(`namespace: ${ns(project, 'dev')}`, `namespace: ${ns(project, 'prod')}`)
+        content: dev.replace(`namespace: ${ns(project, 'dev')}`, `namespace: ${ns(project, 'prod')}`).replace(', ingress.yaml', '') // prod URL: later
           .split('\n').map(l => (l.includes('newTag:') ? `${l.split('#')[0].trimEnd()}   # changed by "Promote to prod" (PR) — then Sync in ArgoCD` : l)).join('\n'),
       },
       { path: 'apps/prod/deployment.yaml', content: devDep.replaceAll('everesto.live/env: dev', 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },

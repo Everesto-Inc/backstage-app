@@ -288,6 +288,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             memoryMi: Number(b.memoryMi ?? 192),
             replicas: Number(b.replicas ?? 1),
             healthPath: str(b.healthPath) || undefined,
+            publicUrl: b.publicUrl !== false,
           };
           try {
             const { refs, who } = await caller(req);
