@@ -408,7 +408,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
         const runAccessSync = async (dryRun: boolean) => {
           const credentials = await auth.getOwnServiceCredentials();
           const getEntities = async (filter: Record<string, string>) => (await catalog.getEntities({ filter }, { credentials })).items;
-          return syncGithubAccess(config, await readSpaces(getEntities), dryRun);
+          const platform = (await getEntities({ kind: 'Group', 'metadata.name': 'platform-team' }))[0];
+          const owners = ((platform?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase());
+          return syncGithubAccess(config, await readSpaces(getEntities), dryRun, owners);
         };
         router.post('/access/sync', async (req, res) => {
           try {

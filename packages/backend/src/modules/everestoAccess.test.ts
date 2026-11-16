@@ -1,4 +1,4 @@
-import { expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
+import { argoRbacCsv, expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
 
 describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
@@ -39,5 +39,24 @@ describe('expandEntityAdmins', () => {
   it('adds nothing for other groups, and never crosses entities', async () => {
     expect(await expandEntityAdmins(['group:default/orchid-developers'], spacesOf)).toEqual(['group:default/orchid-developers']);
     expect(await expandEntityAdmins(['group:default/okapi-admins'], spacesOf)).toEqual(['group:default/okapi-admins']);
+  });
+});
+
+describe('argoRbacCsv', () => {
+  const csv = argoRbacCsv(['orchid']);
+  const has = (line: string) => csv.split('\n').includes(line);
+  it('developers: get + sync only, in their space', () => {
+    expect(has('p, role:orchid-developer, applications, sync, orchid/*, allow')).toBe(true);
+    expect(csv).not.toMatch(/role:orchid-developer, applications, (delete|create)/);
+  });
+  it('maintainers may delete but not create; managers create, update, delete', () => {
+    expect(has('p, role:orchid-maintainer, applications, delete, orchid/*, allow')).toBe(true);
+    expect(csv).not.toMatch(/role:orchid-maintainer, applications, create/);
+    expect(has('p, role:orchid-manager, applications, create, orchid/*, allow')).toBe(true);
+  });
+  it('maps GitHub teams to roles and owners to admin', () => {
+    expect(has('g, Everesto-Inc:orchid-developers, role:orchid-developer')).toBe(true);
+    expect(has('g, Everesto-Inc:platform-team, role:admin')).toBe(true);
+    expect(csv).not.toContain('*/*');
   });
 });
