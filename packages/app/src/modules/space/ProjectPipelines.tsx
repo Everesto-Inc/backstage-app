@@ -230,8 +230,8 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
   );
 };
 
-const Section = ({ title, hint, items, ...rest }: {
-  title: string; hint: string; items: Entity[]; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; isOwner: boolean;
+const Section = ({ title, items, ...rest }: {
+  title: string; items: Entity[]; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; isOwner: boolean;
 }) => {
   const classes = useStyles();
   if (items.length === 0) return null;
@@ -240,7 +240,6 @@ const Section = ({ title, hint, items, ...rest }: {
       <div className={classes.sectionHead}>
         <Typography variant="h6">{title}</Typography>
         <span className={classes.count}>{items.length}</span>
-        <Typography variant="body2" color="textSecondary">{hint}</Typography>
       </div>
       {items.map(e => <PipelineCard key={e.metadata.name} e={e} {...rest} />)}
     </div>
@@ -355,9 +354,9 @@ export const ProjectPipelines = () => {
         </Grid>
       </Grid>}
 
-      <Section title="CI pipelines" hint="build · test · scan · image" items={ci} project={project} tools={CI_TOOLS} kind="ci" isOwner={isOwner} />
-      <Section title="CD pipelines" hint="ArgoCD → K3s · Ansible → VMs" items={cd} project={project} tools={CD_TOOLS} kind="cd" isOwner={isOwner} />
-      <Section title="Repositories" hint="no pipeline — scripts, automation, storage" items={repoOnly} project={project} tools={CI_TOOLS.filter(t => t.id === 'code')} kind="repo" isOwner={isOwner} />
+      <Section title="CI pipelines" items={ci} project={project} tools={CI_TOOLS} kind="ci" isOwner={isOwner} />
+      <Section title="CD pipelines" items={cd} project={project} tools={CD_TOOLS} kind="cd" isOwner={isOwner} />
+      <Section title="Repositories" items={repoOnly} project={project} tools={CI_TOOLS.filter(t => t.id === 'code')} kind="repo" isOwner={isOwner} />
       {dialog}
     </Box>
   );

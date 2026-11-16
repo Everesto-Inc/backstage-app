@@ -1,5 +1,5 @@
 import { createFrontendModule } from '@backstage/frontend-plugin-api';
-import { EntityContentBlueprint } from '@backstage/plugin-catalog-react/alpha';
+import { EntityCardBlueprint, EntityContentBlueprint } from '@backstage/plugin-catalog-react/alpha';
 
 /**
  * DevOps Space pages — DUMMY layout preview (actions only show what they will do).
@@ -15,6 +15,18 @@ const tab = (name: string, path: string, title: string, filter: string, load: ()
 export const spaceModule = createFrontendModule({
   pluginId: 'catalog',
   extensions: [
+    // back to the DevOps Space from every application page (CI, CD, repository)
+    EntityCardBlueprint.make({
+      name: 'space-nav',
+      params: {
+        filter: 'kind:component,resource,group',
+        type: 'content',
+        loader: async () => {
+          const { SpaceNavCard } = await import('./SpaceNavCard');
+          return <SpaceNavCard />;
+        },
+      },
+    }),
     tab('devops-space', '/', 'DevOps Space', 'kind:domain', async () => {
       const { SpaceOverview } = await import('./SpaceOverview');
       return <SpaceOverview />;

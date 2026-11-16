@@ -41,6 +41,9 @@ app:
     - entity-card:sonarqube/card: false
 
     # Overview card order on applications: Tools above the relations graph
+    - entity-card:catalog/space-nav:        # ← DevOps Space – <name> (top of every app page)
+        config:
+          type: content
     - entity-card:catalog/devops-tools:
         config:
           type: content
