@@ -23,6 +23,31 @@ const useStyles = makeStyles(theme => ({
 }));
 
 /**
+ * Where a tool icon leads — always THIS app's own page in that tool (repo, its Actions, its own image package, …).
+ * undefined → icon not clickable.
+ */
+export const toolUrl = (entity: Entity, toolId: string): string | undefined => {
+  const a = entity.metadata.annotations ?? {};
+  const slug = a['github.com/project-slug']; // Everesto-Inc/<repo> (CI) or Everesto-Inc/<repo>-gitops (CD)
+  const repo = slug?.split('/')[1];
+  const app = repo?.replace(/-gitops$/, '');
+  switch (toolId) {
+    case 'code': return slug && `https://github.com/${slug}`;
+    case 'ci': return slug && `https://github.com/${slug}/actions`;
+    case 'secrets-scan':
+    case 'semgrep':
+    case 'trivy': return slug && `https://github.com/${slug}/actions/workflows/ci.yml`;
+    case 'quality': return a['sonarqube.org/project-key'] && `https://sonar.everesto.live/dashboard?id=${encodeURIComponent(a['sonarqube.org/project-key'])}`;
+    case 'registry': return app && `https://github.com/orgs/Everesto-Inc/packages/container/package/${app}`; // this app's own package
+    case 'dependabot': return slug && `https://github.com/${slug}/pulls?q=is%3Apr+author%3Aapp%2Fdependabot`;
+    case 'cd': return app && `https://argocd.everesto.live/applications?search=${encodeURIComponent(app)}`;
+    case 'secrets': return undefined; // secrets are changed in Backstage (Secrets tab), not in Infisical
+    case 'monitoring': return 'https://grafana.everesto.live';
+    default: return undefined;
+  }
+};
+
+/**
  * A pipeline as a chain of connected tool logos: GitHub — Actions — Image — SonarQube …
  * Only tools the app uses are drawn. Status dot per tool: green = connected, red = error
  * (tooltip names the tool + state, so color never carries meaning alone).
@@ -55,11 +80,12 @@ export const PipelineFlow = ({ entity, tools, size = 34, labels = false }: { ent
               title={
                 state.kind === 'error'
                   ? `${tool.name} — error: ${state.reason}`
-                  : `${tool.name} — connected`
+                  : `${tool.name} — connected${toolUrl(entity, tool.id) ? ' · click to open' : ''}`
               }
             >
               <div className={classes.step}>
-                <Box className={classes.node}>
+                <Box className={classes.node} component={toolUrl(entity, tool.id) ? 'a' : 'span'}
+                  {...(toolUrl(entity, tool.id) ? { href: toolUrl(entity, tool.id), target: '_blank', rel: 'noopener', style: { cursor: 'pointer' } } : {})}>
                   <ToolLogo tool={tool} size={size} />
                   <span className={classes.dot} style={{ background: color, width: size > 40 ? 14 : 12, height: size > 40 ? 14 : 12 }} />
                 </Box>
