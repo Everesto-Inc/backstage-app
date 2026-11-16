@@ -265,8 +265,8 @@ export const ProjectPipelines = () => {
   const back = null;
   const createButtons = canCreate && !demo && (
     <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
-      <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
-      <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
+      <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
+      <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('python')}>Create pipeline</Button>
     </Box>
   );

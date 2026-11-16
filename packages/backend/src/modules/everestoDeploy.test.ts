@@ -10,17 +10,17 @@ describe('setupCommands', () => {
 
   it('uses the app, gitops repo and namespaces', () => {
     const all = steps.map(s => s.cmd).join('\n');
-    expect(all).toContain('python-backend-gitops/main/argocd/argocd.yaml');
-    expect(all).toContain('python-backend-gitops/main/argocd/argocd-prod.yaml');
+    expect(all).toContain('platform/tenants/orchid/python-backend.yaml');   // app-of-apps: no kubectl apply per app
+    expect(all).toContain('application python-backend-prod');
     expect(all).toContain('-n orchid-dev');
     expect(all).toContain('-n orchid-prod');
     expect(all).toContain('application python-backend-dev');
   });
 
-  it('never contains a real secret — only placeholders', () => {
+  it('never contains a secret — the ESO login is automatic (Infisical platform-eso → ESO)', () => {
     const login = steps.find(s => s.n === 2)!;
-    expect(login.cmd).toContain("clientId='<CLIENT_ID>'");
-    expect(login.cmd).toContain("clientSecret='<CLIENT_SECRET>'");
+    expect(login.cmd).toContain('AUTOMATIC');
+    expect(steps.map(s => s.cmd).join('\n')).not.toMatch(/clientSecret=/);
   });
 
   it('marks prod as not done yet until the first promote', () => {
