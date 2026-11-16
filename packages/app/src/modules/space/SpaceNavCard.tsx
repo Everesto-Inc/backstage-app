@@ -1,7 +1,6 @@
 import { useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
-import { Box, Button, Typography } from '@material-ui/core';
-import ArrowBack from '@material-ui/icons/ArrowBack';
+import { Box, Typography } from '@material-ui/core';
 import { Link } from 'react-router-dom';
 import useAsync from 'react-use/esm/useAsync';
 
@@ -17,16 +16,14 @@ export const SpaceNavCard = () => {
   if (!space) return null;
   const spaceTitle = sys?.metadata.title ?? `DevOps Space – ${space}`;
   const entityName = String(sys?.spec?.domain ?? '');
-  const crumb = { textDecoration: 'none', color: 'inherit', fontWeight: 600 } as const;
+  // the space title itself is the link: always lands on the space's Pipelines page (all CI / CD / repositories)
   return (
-    <Box display="flex" alignItems="center" flexWrap="wrap" style={{ gap: 16 }}>
-      <Button component={Link} to={`/catalog/default/system/${space}`} variant="contained" color="primary" disableElevation startIcon={<ArrowBack />}>
-        {spaceTitle}
-      </Button>
-      <Typography variant="body2" color="textSecondary">
-        {entityName && <><Link to={`/catalog/default/domain/${entityName}`} style={crumb}>{entityName}</Link>{' › '}</>}
-        <Link to={`/catalog/default/system/${space}`} style={crumb}>{spaceTitle}</Link>
-        {' › '}<b>{entity.metadata.title ?? entity.metadata.name}</b>
+    <Box>
+      <Link to={`/catalog/default/system/${space}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+        <Typography variant="h5" style={{ fontWeight: 800 }}>{spaceTitle}</Typography>
+      </Link>
+      <Typography variant="caption" color="textSecondary">
+        {entityName ? `${entityName} › ` : ''}{spaceTitle} › {entity.metadata.title ?? entity.metadata.name}
       </Typography>
     </Box>
   );

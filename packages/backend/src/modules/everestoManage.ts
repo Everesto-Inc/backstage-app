@@ -18,7 +18,7 @@ import { gh, githubToken, sonarProvision, sonarRemove } from './everestoActions'
 import { ROLE } from './everestoRoles';
 
 export { ROLE };
-import { infisicalDelete } from './everestoDeploy';
+import { infisicalDelete, removeTenant } from './everestoDeploy';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -218,7 +218,9 @@ export async function deleteApp(
     const d = await gh(token, 'DELETE', `/repos/${OWNER}/${gitops}`);
     if (d.ok) done.push(`GitHub repo ${OWNER}/${gitops} (CD)`);
     else warn.push(`could not delete ${gitops} (${d.status})`);
-    warn.push(`run on the control plane (Backstage has no cluster access) — removes dev + prod pods, the secret stores and the (now invalid) ESO login: sudo kubectl -n argocd delete application ${repo}-dev ${repo}-prod --ignore-not-found && sudo kubectl delete clustersecretstore infisical-${repo}-dev infisical-${repo}-prod --ignore-not-found && sudo kubectl -n external-secrets delete secret infisical-${repo}-auth --ignore-not-found`);
+    await removeTenant(token, project, repo, 'Backstage').then(
+      () => done.push('ArgoCD apps, secret stores and ESO login: removed from git — ArgoCD deletes them within ~3 min'),
+      e => warn.push(`tenant file not removed: ${e}`));
     const inf = await infisicalDelete(config, repo);
     done.push(...inf.done);
     warn.push(...inf.warn);

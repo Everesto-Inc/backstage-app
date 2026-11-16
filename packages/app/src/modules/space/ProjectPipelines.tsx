@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Entity, parseEntityRef } from '@backstage/catalog-model';
+import { Entity } from '@backstage/catalog-model';
 import { useEntity, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { Progress, ResponseErrorPanel } from '@backstage/core-components';
 import { Box, Button, Checkbox, FormControlLabel, Grid, Typography, makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
 import EditIcon from '@material-ui/icons/Edit';
 import AccountTreeIcon from '@material-ui/icons/AccountTree';
-import ArrowBack from '@material-ui/icons/ArrowBack';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
 import { useIsProjectMaintainer, useIsProjectOwner, useProjectParts } from './data';
@@ -251,7 +250,6 @@ export const ProjectPipelines = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const project = entity.metadata.name;
-  const domain = entity.spec?.domain as string | undefined;
   const { value, loading, error } = useProjectParts(project);
   const isOwner = useIsProjectOwner(project);
   const demo = useDemoData();
@@ -263,19 +261,8 @@ export const ProjectPipelines = () => {
   if (error) return <ResponseErrorPanel error={error} />;
   const { ci, repoOnly, cd } = value!;
 
-  // header on every space page: "DevOps Space – Orchid", back to the entity's DevOps Spaces, create buttons (maintainers+)
-  const back = (
-    <Box display="flex" alignItems="center" style={{ gap: 16, flexWrap: 'wrap' }}>
-      {domain && (
-        <EntityRefLink entityRef={parseEntityRef(domain, { defaultKind: 'domain' })} style={{ textDecoration: 'none' }}>
-          <Button variant="outlined" size="small" startIcon={<ArrowBack />}>DevOps Spaces · {domain}</Button>
-        </EntityRefLink>
-      )}
-      <Typography variant="h5" style={{ fontWeight: 800 }}>
-        {String(entity.metadata.title ?? project).startsWith('DevOps Space') ? entity.metadata.title : `DevOps Space – ${entity.metadata.title ?? project}`}
-      </Typography>
-    </Box>
-  );
+  // the page header already shows "DevOps Space – Orchid"; this page IS the space's home (all CI / CD / repositories)
+  const back = null;
   const createButtons = canCreate && !demo && (
     <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
       <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
