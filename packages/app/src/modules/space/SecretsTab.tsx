@@ -10,7 +10,7 @@ import useAsync from 'react-use/esm/useAsync';
 import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { SetupStep, SetupSteps } from './CdActions';
-import { ago, insightsTarget } from './insights';
+import { ago, insightsTarget, nsOf } from './insights';
 import { useSpaceRole } from './data';
 
 /**
@@ -79,7 +79,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
         {(['dev', 'prod'] as Env[]).map(e => (
           <Button key={e} size="small" variant={env === e ? 'contained' : 'outlined'} color="primary" disableElevation
             onClick={() => { setEnv(e); setApplyCmd(undefined); }}>
-            {e} · {project}-{e}
+            {e} · {nsOf(entity, e)}
           </Button>
         ))}
         <Typography variant="caption" color="textSecondary" style={{ marginLeft: 8 }}>
@@ -117,13 +117,13 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
       </Box>
 
       <Box mt={2}>
-        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${env}-${project}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
+        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${nsOf(entity, env)}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
       </Box>
 
       <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
         <Typography variant="subtitle2">Setup commands · {env} (control plane, <code>ssho control-plane</code>) — in order, safe to re-run</Typography>
         <Typography variant="caption" color="textSecondary">
-          Use them whenever the app does not exist yet in {env}-{project}. Explained in detail in the Tech Docs tab of {repo}-gitops.
+          Use them whenever the app does not exist yet in {nsOf(entity, env)}. Explained in detail in the Tech Docs tab of {repo}-gitops.
         </Typography>
         <SetupSteps steps={steps.filter(x => x.env === 'once' || x.env === env)} />
       </Box>

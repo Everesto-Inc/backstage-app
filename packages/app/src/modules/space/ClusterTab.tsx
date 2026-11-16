@@ -4,7 +4,7 @@ import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, Typography } from '@material-ui/core';
 import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 import { STATUS, StatTile } from '../tools/charts';
-import { insightsTarget } from './insights';
+import { insightsTarget, nsOf } from './insights';
 
 /**
  * Deployment → CD tab: live cluster view of dev + prod (ArgoCD status, deployment, pods, warnings, logs).
@@ -36,7 +36,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   const repo = insightsTarget(entity).repo;
-  const project = String(entity.spec?.system ?? '');
+
   const [logs, setLogs] = useState<{ env: string; pod: string; previous: boolean; text?: string; error?: string } | undefined>();
 
   const get = async (path: string) => {
@@ -63,7 +63,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
   return (
     <Box>
       <Box display="flex" alignItems="center" mb={1}>
-        <Typography variant="body2" color="textSecondary">Live, read-only · only dev-{project} / prod-{project} · refreshed when you open the tab</Typography>
+        <Typography variant="body2" color="textSecondary">Live, read-only · only {nsOf(entity, 'dev')} / {nsOf(entity, 'prod')} · refreshed when you open the tab</Typography>
         <Box ml="auto"><Button size="small" onClick={data.retry}>Refresh</Button></Box>
       </Box>
       <Grid container spacing={2}>
@@ -74,7 +74,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
           return (
             <Grid item xs={12} key={env}>
               <Box {...box}>
-                <Typography variant="h6">{env} · ns {env}-{project}</Typography>
+                <Typography variant="h6">{env} · ns {nsOf(entity, env)}</Typography>
                 {!argo?.exists ? (
                   <Typography variant="body2" color="textSecondary">
                     ArgoCD app {env}-{repo} not created yet{env === 'prod' ? ' — first Promote to prod, then the setup commands (Secrets tab)' : ''}.

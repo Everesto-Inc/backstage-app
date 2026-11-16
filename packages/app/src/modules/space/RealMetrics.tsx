@@ -7,7 +7,7 @@ import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
 import RemoveCircleOutline from '@material-ui/icons/RemoveCircleOutline';
 import useAsync from 'react-use/esm/useAsync';
-import { Insights, Run, StepResult, ago, fmtDuration, insightsTarget, useInsights } from './insights';
+import { Insights, Run, StepResult, ago, fmtDuration, insightsTarget, nsOf, useInsights } from './insights';
 import { Meter, STATUS, Sparkline, StatTile } from '../tools/charts';
 
 const useStyles = makeStyles(theme => ({
@@ -163,7 +163,7 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   return (
     <>
       <div className={c.metrics}>
-        <Metric label={`dev · ns dev-${project} · manual sync`}>
+        <Metric label={`dev · ns ${nsOf(entity, 'dev')} · manual sync`}>
           <Box>
             {env(dev)}{argoBadge('dev')}
             {entity.metadata.annotations?.['everesto.live/url-dev'] && (
@@ -171,7 +171,7 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
             )}
           </Box>
         </Metric>
-        <Metric label={`prod · ns prod-${project} · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
+        <Metric label={`prod · ns ${nsOf(entity, 'prod')} · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
         <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
       </div>
       <Box px={3} py={1.5}>

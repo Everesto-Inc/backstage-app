@@ -21,8 +21,10 @@ import { argoApp } from './everestoK8s';
 import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
 
 type Env = 'dev' | 'prod';
-/** Namespace of a space per environment — env-first like the ArgoCD apps: dev-orchid, prod-orchid. */
-export const ns = (project: string, env: Env) => `${env}-${project}`;
+/** Namespace of an APP per environment: env-first + a short key chosen at Create deployment (dev-python, prod-python). */
+export const ns = (nsKey: string, env: Env) => `${env}-${nsKey}`;
+export const NS_KEY = /^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/;
+const RESERVED_NS = ['backstage', 'argocd', 'system', 'platform', 'default', 'livecode', 'folio', 'maas', 'monitoring', 'awx'];
 const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 
@@ -34,13 +36,14 @@ export type DeploymentInput = {
   replicas: number;
   healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
   publicUrl?: boolean; // dev: ingress <repo>.dev.everesto.live (via alb wildcard → in-cluster Traefik)
+  nsKey?: string; // short namespace key → dev-<nsKey> / prod-<nsKey> (default: first word of the app name)
 };
 
 // ---------- manifests ----------
 
-const kustomization = (image: string, tag: string, project: string, env: Env, ingress = false) => `apiVersion: kustomize.config.k8s.io/v1beta1
+const kustomization = (image: string, tag: string, nsKey: string, env: Env, ingress = false) => `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: ${ns(project, env)}
+namespace: ${ns(nsKey, env)}
 resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml${ingress ? ', ingress.yaml' : ''}]
 images:
   - name: ${image}
@@ -82,13 +85,13 @@ ${probes(d)}
 `;
 
 // own manifest (not only CreateNamespace=true): ArgoCD skips CreateNamespace on partial syncs
-const namespace = (project: string, env: Env) => `apiVersion: v1
+const namespace = (project: string, nsKey: string, env: Env) => `apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${ns(project, env)}
+  name: ${ns(nsKey, env)}
   labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
   annotations:
-    # shared by every app of ${project}: deleting ONE app must never delete the namespace
+    # never deleted by ArgoCD (safety): remove it by hand after Delete deployment if it is empty
     argocd.argoproj.io/sync-options: Delete=false
 `;
 
@@ -142,7 +145,7 @@ spec:
     - find: { name: { regexp: ".*" } }
 `;
 
-const appProject = (project: string) => `apiVersion: argoproj.io/v1alpha1
+const appProject = (project: string, namespaces: string[]) => `apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: ${project}
@@ -151,16 +154,15 @@ spec:
   description: DevOps space ${project}
   sourceRepos:
     - https://github.com/${OWNER}/*-gitops.git
-  destinations:
-    - { server: https://kubernetes.default.svc, namespace: ${ns(project, 'dev')} }
-    - { server: https://kubernetes.default.svc, namespace: ${ns(project, 'prod')} }
+  destinations:   # exactly the namespaces of this space's apps (dev-<key> / prod-<key>)
+${[...new Set(namespaces)].sort().map(n => `    - { server: https://kubernetes.default.svc, namespace: ${n} }`).join('\n')}
   clusterResourceWhitelist:
     - { group: '', kind: Namespace }
   namespaceResourceWhitelist:
     - { group: '*', kind: '*' }
 `;
 
-const application = (repo: string, project: string, env: Env) => `apiVersion: argoproj.io/v1alpha1
+const application = (repo: string, project: string, env: Env, nsKey: string) => `apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: ${env}-${repo}
@@ -173,19 +175,19 @@ spec:
     repoURL: https://github.com/${OWNER}/${repo}-gitops.git
     targetRevision: main
     path: apps/${env}
-  destination: { server: https://kubernetes.default.svc, namespace: ${ns(project, env)} }
+  destination: { server: https://kubernetes.default.svc, namespace: ${ns(nsKey, env)} }
   syncPolicy:
     # MANUAL sync: after "Deploy" / "Promote" click Sync in ArgoCD
     syncOptions: [CreateNamespace=true]
 `;
 
-const secretStore = (repo: string, project: string, env: Env, projectSlug: string, url: string) => `apiVersion: external-secrets.io/v1
+const secretStore = (repo: string, _project: string, env: Env, projectSlug: string, url: string, nsKey: string) => `apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
 metadata:
   name: infisical-${repo}-${env}
 spec:
   conditions:
-    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ${ns(project, env)} } }
+    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ${ns(nsKey, env)} } }
   provider:
     infisical:
       hostAPI: ${url}
@@ -315,12 +317,12 @@ export type SetupStep = {
 };
 
 /** Every control-plane command of a deployment, in order, explained. Source for: Secrets tab, Edit deployment, Tech Docs. */
-export const setupCommands = (repo: string, project: string, hasProd: boolean): SetupStep[] => {
+export const setupCommands = (repo: string, project: string, hasProd: boolean, nsKey = project): SetupStep[] => {
   const gitops = `${repo}-gitops`;
-  const dev = ns(project, 'dev');
-  const prod = ns(project, 'prod');
+  const dev = ns(nsKey, 'dev');
+  const prod = ns(nsKey, 'prod');
   const sync = (e: Env) => `sudo kubectl -n argocd patch application ${e}-${repo} --type merge -p '{"operation":{"sync":{}}}'`;
-  const check = (e: Env) => `sudo kubectl -n argocd get application ${e}-${repo}\nsudo kubectl -n ${ns(project, e)} get pods,externalsecret,secret`;
+  const check = (e: Env) => `sudo kubectl -n argocd get application ${e}-${repo}\nsudo kubectl -n ${ns(nsKey, e)} get pods,externalsecret,secret`;
   return [
     {
       n: 1, env: 'once', title: 'Tenant node label (once per cluster)',
@@ -370,16 +372,16 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean): 
 };
 
 /** After a secret changed (only when the app already runs in that namespace). */
-export const applySecretsCmd = (repo: string, project: string, env: Env) =>
-  `sudo kubectl -n ${ns(project, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
-  `sudo kubectl -n ${ns(project, env)} rollout restart deployment ${repo}`;
+export const applySecretsCmd = (repo: string, nsKey: string, env: Env) =>
+  `sudo kubectl -n ${ns(nsKey, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
+  `sudo kubectl -n ${ns(nsKey, env)} rollout restart deployment ${repo}`;
 
 
-const runbook = (repo: string, project: string, hasProd: boolean) => {
+const runbook = (repo: string, project: string, hasProd: boolean, nsKey = project) => {
   const gitops = `${repo}-gitops`;
-  const dev = ns(project, 'dev');
-  const prod = ns(project, 'prod');
-  const steps = setupCommands(repo, project, hasProd);
+  const dev = ns(nsKey, 'dev');
+  const prod = ns(nsKey, 'prod');
+  const steps = setupCommands(repo, project, hasProd, nsKey);
   const section = (env: SetupStep['env']) => steps.filter(x => x.env === env).map(x => `### ${x.n}. ${x.title}
 
 \`\`\`bash
@@ -463,7 +465,7 @@ ${section('prod')}
 
 \`\`\`bash
 # apply a changed secret now (dev; use ${prod} for prod) — only when the app already runs there
-${applySecretsCmd(repo, project, 'dev')}
+${applySecretsCmd(repo, nsKey, 'dev')}
 \`\`\`
 
 ## Troubleshooting
@@ -526,7 +528,7 @@ async function rotateEsoLogin(config: Config, repo: string, who: string): Promis
   return p.slug; // real slug of platform-eso (for the platform store)
 }
 
-const tenantYaml = (repo: string, project: string, envs: Env[], appSlug: string, url: string) => [
+const tenantYaml = (repo: string, project: string, envs: Env[], appSlug: string, url: string, nsKey: string) => [
   `# GENERATED by Backstage — DevOps Space ${project} · app ${repo}. Do not edit; Create deployment / Promote / Delete manage it.\n`,
   `apiVersion: external-secrets.io/v1
 kind: ExternalSecret
@@ -541,8 +543,8 @@ spec:
     - { secretKey: clientId, remoteRef: { key: ${loginKey(repo, 'CLIENT_ID')} } }
     - { secretKey: clientSecret, remoteRef: { key: ${loginKey(repo, 'CLIENT_SECRET')} } }
 `,
-  ...envs.map(e => secretStore(repo, project, e, appSlug, url)),
-  ...envs.map(e => application(repo, project, e)),
+  ...envs.map(e => secretStore(repo, project, e, appSlug, url, nsKey)),
+  ...envs.map(e => application(repo, project, e, nsKey)),
 ].join('---\n');
 
 const PLATFORM_FILES = {
@@ -570,14 +572,37 @@ spec:
 async function writeTenant(token: string, project: string, repo: string, content: string | null, message: string, url: string, esoSlug = '') {
   const files: { path: string; content: string | null }[] = [{ path: `platform/tenants/${project}/${repo}.yaml`, content }];
   if (content !== null) {
-    if (!(await readFile(token, PLATFORM_REPO, `platform/tenants/${project}/appproject.yaml`))) {
-      files.push({ path: `platform/tenants/${project}/appproject.yaml`, content: `# GENERATED by Backstage — ArgoCD project of DevOps Space ${project}.\n${appProject(project)}` });
-    }
+    // AppProject <space>: destinations = every namespace used by the space's apps (this file + the others)
+    const tree = await gh(token, 'GET', `/repos/${OWNER}/${PLATFORM_REPO}/git/trees/main?recursive=1`);
+    const others = ((tree.json?.tree ?? []) as any[]).map(t => t.path as string)
+      .filter(f => f.startsWith(`platform/tenants/${project}/`) && f.endsWith('.yaml') && !f.endsWith('/appproject.yaml') && f !== `platform/tenants/${project}/${repo}.yaml`);
+    const texts = [content, ...(await Promise.all(others.map(f => readFile(token, PLATFORM_REPO, f))))];
+    const nss = texts.flatMap(t => [...String(t ?? '').matchAll(/destination: \{ server: \S+, namespace: ([a-z0-9-]+) \}/g)].map(m => m[1]));
+    files.push({ path: `platform/tenants/${project}/appproject.yaml`, content: `# GENERATED by Backstage — ArgoCD project of DevOps Space ${project}.\n${appProject(project, nss)}` });
     if (esoSlug && !(await readFile(token, PLATFORM_REPO, PLATFORM_FILES.store))) files.push({ path: PLATFORM_FILES.store, content: platformStore(url, esoSlug) });
   }
   try { await commit(token, PLATFORM_REPO, message, files); } catch { await commit(token, PLATFORM_REPO, message, files); }
 }
 
+
+/** Short namespace key of an app (deployment.json in <repo>-gitops). Older deployments: the space name. */
+export async function nsKeyOf(token: string, repo: string, project: string) {
+  const meta = await readFile(token, `${repo}-gitops`, 'deployment.json');
+  try { return String(JSON.parse(meta ?? '{}').nsKey ?? project); } catch { return project; }
+}
+
+/** Is dev-<key> / prod-<key> free? (not reserved, not used by another app's tenant file) */
+async function nsKeyFree(token: string, nsKey: string, repo: string) {
+  if (RESERVED_NS.includes(nsKey)) return false;
+  const tree = await gh(token, 'GET', `/repos/${OWNER}/${PLATFORM_REPO}/git/trees/main?recursive=1`);
+  const files = ((tree.json?.tree ?? []) as any[]).map(t => t.path as string)
+    .filter(f => f.startsWith('platform/tenants/') && f.endsWith('.yaml') && !f.endsWith(`/${repo}.yaml`) && !f.endsWith('/appproject.yaml') && !f.includes('/_platform/'));
+  for (const f of files) {
+    const t = (await readFile(token, PLATFORM_REPO, f)) ?? '';
+    if (new RegExp(`namespace: (dev|prod)-${nsKey} \\}`).test(t)) return false;
+  }
+  return true;
+}
 
 // ---------- create ----------
 
@@ -592,8 +617,11 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     throw err(400, 'port 1-65535, memory 64-1024 Mi, replicas 1-3');
   }
   if (d.healthPath && !/^\/[A-Za-z0-9/_.-]{0,100}$/.test(d.healthPath)) throw err(400, 'health path must look like /health');
+  const nsKey = (d.nsKey || repo.split('-')[0]).toLowerCase();
+  if (!NS_KEY.test(nsKey)) throw err(400, 'namespace name: a-z 0-9 - (max 42), e.g. python');
   const gitops = `${repo}-gitops`;
   if ((await gh(token, 'GET', `/repos/${OWNER}/${gitops}`)).status !== 404) throw err(409, `${gitops} already exists — delete the deployment first`);
+  if (!(await nsKeyFree(token, nsKey, repo))) throw err(409, `namespace dev-${nsKey} / prod-${nsKey} is already used or reserved — choose another short name`);
   const [last] = await builds(config, repo);
   if (!last) throw err(409, `${repo} has no successful build on main yet — no image to deploy`);
 
@@ -611,17 +639,17 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } },
   });
   await commit(token, gitops, `CD for ${repo}: apps/dev (Backstage, by ${who})`, [
-    { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, project, 'dev', d.publicUrl !== false) },
+    { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, nsKey, 'dev', d.publicUrl !== false) },
     ...(d.publicUrl !== false ? [{ path: 'apps/dev/ingress.yaml', content: ingress(repo) }] : []),
-    { path: 'apps/dev/namespace.yaml', content: namespace(project, 'dev') },
+    { path: 'apps/dev/namespace.yaml', content: namespace(project, nsKey, 'dev') },
     { path: 'apps/dev/rolebinding-backstage.yaml', content: roleBinding(repo) },
     { path: 'apps/dev/deployment.yaml', content: deployment(repo, image, project, 'dev', d) },
     { path: 'apps/dev/service.yaml', content: service(repo, d.port) },
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
-    { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project)}---\n${application(repo, project, 'dev')}` },
-    { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url)}` },
-    { path: 'deployment.json', content: `${JSON.stringify({ port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
-    { path: 'docs/index.md', content: runbook(repo, project, false) },
+    { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project, [ns(nsKey, 'dev'), ns(nsKey, 'prod')])}---\n${application(repo, project, 'dev', nsKey)}` },
+    { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url, nsKey)}` },
+    { path: 'deployment.json', content: `${JSON.stringify({ nsKey, port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
+    { path: 'docs/index.md', content: runbook(repo, project, false, nsKey) },
     { path: 'mkdocs.yml', content: mkdocs(repo) },
     { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },
   ]);
@@ -630,13 +658,13 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/namespace: ${nsKey}\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
   // 4. ArgoCD objects via git (app-of-apps): login (ESO), secret store, Application <repo>-dev — no kubectl per app
   const esoSlug = await rotateEsoLogin(config, repo, who);
-  await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev'], inf.projectSlug, inf.url), `tenants: ${project}/${repo} dev (Backstage, by ${who})`, inf.url, esoSlug);
+  await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev'], inf.projectSlug, inf.url, nsKey), `tenants: ${project}/${repo} dev (Backstage, by ${who})`, inf.url, esoSlug);
   done.push(`ArgoCD app dev-${repo} + its secret store + login: committed to ${PLATFORM_REPO}/platform/tenants — ArgoCD creates them within ~3 min, then click Sync`);
   const commands: { title: string; cmd: string; secret?: boolean }[] = [];
   if (!(await argoApp('platform-tenants'))?.exists) {
@@ -656,6 +684,7 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
   if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can deploy to dev`);
   if (!(await builds(config, repo)).some(b => b.tag === tag)) throw err(400, `${tag} is not one of the last successful builds`);
   const { gitops, dev } = await requireDeployment(token, repo);
+  const nsKey = await nsKeyOf(token, repo, project);
   if (tagOf(dev) === tag) throw err(409, `dev already has ${tag} — click Sync in ArgoCD if it isn't running yet`);
   const sha = await commit(token, gitops, `dev: image → ${tag} (Backstage, by ${who})`,
     [{ path: 'apps/dev/kustomization.yaml', content: dev.replace(/(newTag:\s*)\S+/, `$1${tag}`) }]);
@@ -663,7 +692,7 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
     from: tagOf(dev), to: tag, commit: sha, argocdApp: `dev-${repo}`,
     commands: [
       { title: `1. Sync dev-${repo} (or ArgoCD UI → Sync)`, cmd: `sudo kubectl -n argocd patch application dev-${repo} --type merge -p '{"operation":{"sync":{}}}'` },
-      { title: '2. Check (after ~30 s)', cmd: `sudo kubectl -n ${ns(project, 'dev')} get pods,externalsecret,secret` },
+      { title: '2. Check (after ~30 s)', cmd: `sudo kubectl -n ${ns(nsKey, 'dev')} get pods,externalsecret,secret` },
     ],
   };
 }
@@ -676,6 +705,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
   if (!allowed(refs, project, [...ROLE.PROD])) throw err(403, `only managers of ${project} can promote to prod`);
   const { gitops, dev, prod } = await requireDeployment(token, repo);
   const devTag = tagOf(dev)!;
+  const nsKey = await nsKeyOf(token, repo, project);
   if (prod && tagOf(prod) === devTag) throw err(409, `prod already runs ${devTag}`);
 
   const files: { path: string; content: string }[] = [];
@@ -695,26 +725,26 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     files.push(
       {
         path: 'apps/prod/kustomization.yaml',
-        content: dev.replace(`namespace: ${ns(project, 'dev')}`, `namespace: ${ns(project, 'prod')}`).replace(', ingress.yaml', '') // prod URL: later
+        content: dev.replace(`namespace: ${ns(nsKey, 'dev')}`, `namespace: ${ns(nsKey, 'prod')}`).replace(', ingress.yaml', '') // prod URL: later
           .split('\n').map(l => (l.includes('newTag:') ? `${l.split('#')[0].trimEnd()}   # changed by "Promote to prod" (PR) — then Sync in ArgoCD` : l)).join('\n'),
       },
       { path: 'apps/prod/deployment.yaml', content: devDep.replaceAll('everesto.live/env: dev', 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
       { path: 'apps/prod/service.yaml', content: devSvc },
-      { path: 'apps/prod/namespace.yaml', content: namespace(project, 'prod') },
+      { path: 'apps/prod/namespace.yaml', content: namespace(project, nsKey, 'prod') },
       { path: 'apps/prod/rolebinding-backstage.yaml', content: roleBinding(repo) },
       { path: 'apps/prod/externalsecret.yaml', content: externalSecret(repo, project, 'prod') },
-      { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url)}---\n${application(repo, project, 'prod')}` },
+      { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url, nsKey)}---\n${application(repo, project, 'prod', nsKey)}` },
     );
-    files.push({ path: 'docs/index.md', content: runbook(repo, project, true) });
+    files.push({ path: 'docs/index.md', content: runbook(repo, project, true, nsKey) });
   }
 
   const sync = `sudo kubectl -n argocd patch application prod-${repo} --type merge -p '{"operation":{"sync":{}}}'`;
-  const check = `sudo kubectl -n ${ns(project, 'prod')} get pods,externalsecret,secret`;
+  const check = `sudo kubectl -n ${ns(nsKey, 'prod')} get pods,externalsecret,secret`;
   if (!prod) {
     commands.push(
       { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
       { title: `2. Set the real prod secrets: Backstage → ${gitops} → Secrets → prod (they are CHANGE_ME)`, cmd: '# Backstage → Secrets tab → prod' },
-      { title: `3. ArgoCD app prod-${repo} appears by itself (~3 min after this promote) → Sync — creates namespace ${ns(project, 'prod')}, Deployment, Service, ExternalSecret`, cmd: sync },
+      { title: `3. ArgoCD app prod-${repo} appears by itself (~3 min after this promote) → Sync — creates namespace ${ns(nsKey, 'prod')}, Deployment, Service, ExternalSecret`, cmd: sync },
       { title: '4. Check (after ~30 s)', cmd: check },
     );
   } else {
@@ -730,7 +760,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     const st = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
     const slug = st.match(/projectSlug:\s*([^,\s}]+)/)?.[1] ?? '';
     const url = st.match(/hostAPI:\s*(\S+)/)?.[1] ?? '';
-    if (slug && url) await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev', 'prod'], slug, url), `tenants: ${project}/${repo} prod (Backstage, by ${who})`, url);
+    if (slug && url) await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev', 'prod'], slug, url, nsKey), `tenants: ${project}/${repo} prod (Backstage, by ${who})`, url);
   }
 
   const branch = `promote-${devTag}`;
@@ -814,13 +844,13 @@ async function secretsCtx(config: Config, repo: string) {
   const { api } = await infisical(config);
   const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
   if (!ws) throw err(404, `Infisical project ${repo}-gitops not found — create the deployment first`);
-  return { project, api, ws };
+  return { project, api, ws, nsKey: await nsKeyOf(token, repo, project) };
 }
 
 const refresh = applySecretsCmd;
 
 export async function secretsList(config: Config, repo: string, env: Env, refs: string[]) {
-  const { project, api, ws } = await secretsCtx(config, repo);
+  const { project, api, ws, nsKey } = await secretsCtx(config, repo);
   if (!allowed(refs, project, [...ROLE.MEMBER])) throw err(403, `only members of ${project} can see secret names`);
   const r = await api('GET', `/api/v3/secrets/raw?workspaceId=${ws.id}&environment=${env}&secretPath=/`);
   if (!r.ok) throw err(502, `Infisical: cannot list secrets (${r.status})`);
@@ -830,7 +860,7 @@ export async function secretsList(config: Config, repo: string, env: Env, refs: 
     // names + dates only — values never leave the backend
     secrets: ((r.json?.secrets ?? []) as any[]).map(s => ({ name: s.secretKey as string, updatedAt: (s.updatedAt ?? s.createdAt) as string, placeholder: s.secretValue === 'CHANGE_ME' }))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    applyCmd: refresh(repo, project, env),
+    applyCmd: refresh(repo, nsKey, env),
     infisicalUrl: `${config.getString('infisical.url')}/project/${ws.id}/secrets/overview`,
   };
 }
@@ -838,22 +868,22 @@ export async function secretsList(config: Config, repo: string, env: Env, refs: 
 export async function secretSet(config: Config, repo: string, env: Env, name: string, value: string, refs: string[]) {
   if (!NAME.test(name)) throw err(400, `invalid name ${name} (A-Z 0-9 _)`);
   if (!value) throw err(400, 'value is empty');
-  const { project, api, ws } = await secretsCtx(config, repo);
+  const { project, api, ws, nsKey } = await secretsCtx(config, repo);
   if (!allowed(refs, project, SECRET_ROLES[env])) throw err(403, `only ${SECRET_ROLES[env].join('/')} of ${project} can change ${env} secrets`);
   const body = { workspaceId: ws.id, environment: env, secretPath: '/', secretValue: value, type: 'shared' };
   let r = await api('PATCH', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, body);
   if (!r.ok) r = await api('POST', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, body); // new secret
   if (!r.ok) throw err(502, `Infisical: cannot save ${name} (${r.status})`);
-  return { saved: name, env, applyCmd: refresh(repo, project, env) };
+  return { saved: name, env, applyCmd: refresh(repo, nsKey, env) };
 }
 
 export async function secretDelete(config: Config, repo: string, env: Env, name: string, refs: string[]) {
   if (!NAME.test(name)) throw err(400, `invalid name ${name}`);
-  const { project, api, ws } = await secretsCtx(config, repo);
+  const { project, api, ws, nsKey } = await secretsCtx(config, repo);
   if (!allowed(refs, project, SECRET_ROLES[env])) throw err(403, `only ${SECRET_ROLES[env].join('/')} of ${project} can delete ${env} secrets`);
   const r = await api('DELETE', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, { workspaceId: ws.id, environment: env, secretPath: '/', type: 'shared' });
   if (!r.ok) throw err(502, `Infisical: cannot delete ${name} (${r.status})`);
-  return { deleted: name, env, applyCmd: refresh(repo, project, env) };
+  return { deleted: name, env, applyCmd: refresh(repo, nsKey, env) };
 }
 
 /** Used by Delete application: remove the tenant file (ArgoCD then deletes apps, stores, login). */

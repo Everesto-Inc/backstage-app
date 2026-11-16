@@ -1,4 +1,4 @@
-import { applySecretsCmd, devHost, setupCommands } from './everestoDeploy';
+import { NS_KEY, applySecretsCmd, devHost, ns, setupCommands } from './everestoDeploy';
 
 describe('setupCommands', () => {
   const steps = setupCommands('python-backend', 'orchid', false);
@@ -42,5 +42,20 @@ describe('devHost', () => {
   it('is one level under dev.everesto.live (covered by the wildcard certificate)', () => {
     expect(devHost('python-backend')).toBe('python-backend.dev.everesto.live');
     expect(devHost('python-backend').split('.').length).toBe(4);
+  });
+});
+
+describe('namespaces', () => {
+  it('per app, env-first, short key: dev-python / prod-python', () => {
+    expect(ns('python', 'dev')).toBe('dev-python');
+    expect(ns('python', 'prod')).toBe('prod-python');
+    expect(NS_KEY.test('python')).toBe(true);
+    expect(NS_KEY.test('Python')).toBe(false);
+    expect(NS_KEY.test('-x')).toBe(false);
+  });
+  it('setup commands use the app key when given', () => {
+    const all = setupCommands('python-backend', 'orchid', false, 'python').map(s => s.cmd).join('\n');
+    expect(all).toContain('-n dev-python');
+    expect(all).not.toContain('dev-orchid');
   });
 });

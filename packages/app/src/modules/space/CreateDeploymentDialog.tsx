@@ -68,6 +68,8 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const [replicas, setReplicas] = useState('1');
   const [health, setHealth] = useState('/health');
   const [publicUrl, setPublicUrl] = useState(true);
+  const [nsKey, setNsKey] = useState('');
+  const key = (nsKey || repo.split('-')[0] || '').toLowerCase();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | undefined>();
   const argocd = TOOLS.find(t => t.id === 'cd')!;
@@ -83,7 +85,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
-          port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl,
+          port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, nsKey: key,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -113,7 +115,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               </Typography>
             )}
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
-              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates prod-{project} on first use).
+              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates prod-{key} on first use).
               {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev.</>}
             </Typography>
           </>
@@ -122,7 +124,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Box display="flex" alignItems="center" style={{ gap: 16 }} mb={1}>
               <Box display="flex" alignItems="center" style={{ gap: 6 }}><ToolLogo tool={argocd} size={22} /><b>ArgoCD</b></Box>
               <Box display="flex" alignItems="center" style={{ gap: 6 }}><ToolLogo tool={infisical} size={22} /><b>Infisical</b> secrets</Box>
-              <Typography variant="caption" color="textSecondary">namespace <b>dev-{project}</b> · manual sync · prod via Promote</Typography>
+              <Typography variant="caption" color="textSecondary">ArgoCD app <b>dev-{repo || '<app>'}</b> · namespace <b>dev-{key || '<short>'}</b> · manual sync · prod via Promote</Typography>
             </Box>
 
             <TextField select fullWidth variant="outlined" margin="dense" label="CI application (its image is deployed)" value={repo}
@@ -135,6 +137,12 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Rows title="Config (not secret)" rows={config} setRows={setConfig} hint="Plain environment variables, written into the deployment (visible in git), e.g. LOG_LEVEL=info" />
 
             <Grid container spacing={2} style={{ marginTop: 8 }}>
+              <Grid item xs={12}>
+                <TextField fullWidth size="small" variant="outlined" label="Namespace (short name)" value={nsKey} placeholder={repo.split('-')[0] || 'python'}
+                  onChange={e => setNsKey(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  error={!!key && !/^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/.test(key)}
+                  helperText={`→ namespaces dev-${key || '<short>'} and prod-${key || '<short>'} (must be unused — checked when you create)`} />
+              </Grid>
               <Grid item xs={12}>
                 <FormControlLabel control={<Checkbox color="primary" checked={publicUrl} onChange={e => setPublicUrl(e.target.checked)} />}
                   label={<span><b>Public URL (dev)</b> <Typography component="span" variant="caption" color="textSecondary">https://{repo || '<app>'}.dev.everesto.live — ingress in apps/dev (prod URL: later)</Typography></span>} />

@@ -15,7 +15,7 @@ import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
-import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
+import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
@@ -289,6 +289,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             memoryMi: Number(b.memoryMi ?? 192),
             replicas: Number(b.replicas ?? 1),
             healthPath: str(b.healthPath) || undefined,
+            nsKey: str(b.nsKey).toLowerCase() || undefined,
             publicUrl: b.publicUrl !== false,
           };
           try {
@@ -320,7 +321,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const token = await githubToken(config, OWNER);
             const { project } = await appInfo(token, repo);
             const hasProd = (await readFile(token, `${repo}-gitops`, 'apps/prod/kustomization.yaml')) !== undefined;
-            res.json({ commands: setupCommands(repo, project, hasProd) });
+            res.json({ commands: setupCommands(repo, project, hasProd, await nsKeyOf(token, repo, project)) });
           } catch (e) { fail(res, e); }
         });
 
@@ -383,10 +384,11 @@ export const everestoInsightsPlugin = createBackendPlugin({
           if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
           try {
             const project = await member(req, repo);
+            const nsKey = await nsKeyOf(await githubToken(config, OWNER), repo, project);
             const envs = await Promise.all((['dev', 'prod'] as const).map(async e => ({
               env: e,
               argo: await argoApp(`${e}-${repo}`),
-              k8s: await workloads(`${e}-${project}`, repo), // namespace env-first (everestoDeploy ns())
+              k8s: await workloads(`${e}-${nsKey}`, repo), // the app's own namespace (dev-<key> / prod-<key>)
             })));
             res.json({ clusterAccess: envs.some(e => e.k8s !== undefined), envs });
           } catch (e) { fail(res, e); }
