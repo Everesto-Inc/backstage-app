@@ -1,10 +1,15 @@
 import { Fragment, useState } from 'react';
+import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { useEntity, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { Progress, ResponseErrorPanel } from '@backstage/core-components';
 import {
   Avatar,
   Box,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   MenuItem,
   TextField,
   Typography,
@@ -12,7 +17,6 @@ import {
 } from '@material-ui/core';
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
 import { Member, ROLES, ROLE_LABEL, Role, useMembers, useSpaceRole } from './data';
-import { PreviewDialog } from './PreviewDialog';
 import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
@@ -53,7 +57,15 @@ export const ProjectMembers = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const project = entity.metadata.name;
-  const { value, loading, error } = useMembers(project);
+  const [reload, setReload] = useState(0);
+  const { value, loading, error } = useMembers(project, reload);
+  const discovery = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
+  const alertApi = useApi(alertApiRef);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ done: string[]; warn: string[] } | undefined>();
+  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
   // Managers add/remove developers and viewers of THEIR space; the Manager / Maintainer ticks are set by the owner
   const myRole = useSpaceRole(project);
   const isOwner = myRole.manager;
@@ -62,7 +74,26 @@ export const ProjectMembers = () => {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('developers');
 
-  if (loading) return <Progress />;
+  const call = async (path: string, body: unknown) => {
+    setBusy(true);
+    try {
+      const base = await discovery.getBaseUrl('everesto');
+      const res = await fetchApi.fetch(`${base}/spaces/${project}/${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setResult(json);
+      // the catalog was refreshed by the backend; give it a few seconds, then reload the list
+      setTimeout(() => setReload(r => r + 1), 4000);
+    } catch (e: any) {
+      alertApi.post({ message: e.message, severity: 'error' });
+    } finally { setBusy(false); }
+  };
+  const closeInvite = () => { setInviting(false); setResult(undefined); setUsername(''); setEmail(''); setDisplayName(''); };
+  const closeRemove = () => { setRemoving(undefined); setResult(undefined); };
+
+  if (loading && !value) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
 
   return (
@@ -94,7 +125,7 @@ export const ProjectMembers = () => {
             </Box>
             <Box ml="auto" display="flex" alignItems="center" style={{ gap: 12 }}>
               <span className={classes.role}>{ROLE_LABEL[m.role]}</span>
-              {isOwner && (
+              {isOwner && (myRole.superAdmin || m.role === 'developers' || m.role === 'viewers') && (
                 <Button size="small" style={{ color: '#d03b3b' }} onClick={() => setRemoving(m)}>
                   Remove
                 </Button>
@@ -113,35 +144,71 @@ export const ProjectMembers = () => {
         ))}
       </div>
 
-      <PreviewDialog
-        open={inviting}
-        onClose={() => setInviting(false)}
-        title={`Invite to ${project}`}
-        steps={[
-          `creates a pending user with ${email || '<email>'} and role ${ROLE_LABEL[role]}`,
-          'sends the invitation email + GitHub org invite (Everesto-Inc)',
-          'on first GitHub login the verified email is matched → user bound to the role',
-          `access sync: GitHub team ${project}-${role}, SonarQube, ArgoCD, Infisical`,
-        ]}
-      >
-        <Box display="flex" style={{ gap: 12 }}>
-          <TextField label="Email" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
-          <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
-            {ROLES.filter(r => myRole.superAdmin || r === 'developers' || r === 'viewers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
-          </TextField>
-        </Box>
-      </PreviewDialog>
+      <Dialog open={inviting} onClose={busy ? undefined : closeInvite} maxWidth="sm" fullWidth>
+        <DialogTitle>Add a member to {entity.metadata.title ?? project}</DialogTitle>
+        <DialogContent>
+          {result ? (
+            <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
+              {result.done.map(d => <li key={d}>{d}</li>)}
+              {result.warn.map(w => <li key={w} style={{ color: '#fab219' }}>⚠ {w}</li>)}
+            </Box>
+          ) : (
+            <>
+              <Typography variant="body2" color="textSecondary" paragraph>
+                Login is with GitHub: enter the person's <b>GitHub username</b> (they need a GitHub account first).
+                Backstage adds them to the catalog with this role and invites them to the GitHub organisation with the right team.
+              </Typography>
+              <Box display="flex" style={{ gap: 12 }}>
+                <TextField label="GitHub username" required fullWidth variant="outlined" size="small" value={username}
+                  onChange={e => setUsername(e.target.value.trim())} placeholder="e.g. babu-chan" />
+                <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
+                  {ROLES.filter(r => myRole.superAdmin || r === 'developers' || r === 'viewers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
+                </TextField>
+              </Box>
+              <Box display="flex" style={{ gap: 12 }} mt={2}>
+                <TextField label="Email (optional)" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
+                <TextField label="Display name (optional)" fullWidth variant="outlined" size="small" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+              </Box>
+              {!myRole.superAdmin && <Typography variant="caption" color="textSecondary">Managers add developers and viewers; Manager / Maintainer roles are given by the owner.</Typography>}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeInvite} disabled={busy}>{result ? 'Close' : 'Cancel'}</Button>
+          {!result && (
+            <Button color="primary" variant="contained" disableElevation disabled={busy || !username}
+              onClick={() => call('members', { username, role, email: email || undefined, displayName: displayName || undefined })}>
+              {busy ? 'Adding…' : 'Add member'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
-      <PreviewDialog
-        open={Boolean(removing)}
-        onClose={() => setRemoving(undefined)}
-        title={`Remove ${removing?.user.metadata.name ?? ''} from ${project}`}
-        steps={[
-          `removes the ${removing ? ROLE_LABEL[removing.role] : ''} role in ${project}`,
-          `access sync revokes GitHub team ${project}-${removing?.role ?? ''}, SonarQube, ArgoCD, Infisical rights`,
-          'if this was their last project anywhere: they can no longer log in to Backstage',
-        ]}
-      />
+      <Dialog open={Boolean(removing)} onClose={busy ? undefined : closeRemove} maxWidth="xs" fullWidth>
+        <DialogTitle>Remove {removing?.user.metadata.name} ({removing ? ROLE_LABEL[removing.role] : ''})?</DialogTitle>
+        <DialogContent>
+          {result ? (
+            <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
+              {result.done.map(d => <li key={d}>{d}</li>)}
+              {result.warn.map(w => <li key={w} style={{ color: '#fab219' }}>⚠ {w}</li>)}
+            </Box>
+          ) : (
+            <Typography variant="body2">
+              Removes the {removing ? ROLE_LABEL[removing.role] : ''} role in {project} (catalog + GitHub team). Their GitHub account
+              and org membership stay — they may belong to other spaces.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRemove} disabled={busy}>{result ? 'Close' : 'Cancel'}</Button>
+          {!result && removing && (
+            <Button variant="contained" disableElevation disabled={busy} style={{ background: '#d03b3b', color: '#fff' }}
+              onClick={() => call('members/remove', { username: removing.user.metadata.name, role: removing.role })}>
+              {busy ? 'Removing…' : 'Remove'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
       <AccessSyncCard />
     </Box>
   );

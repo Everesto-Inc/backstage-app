@@ -62,7 +62,7 @@ export const useProjectParts = (system: string) => {
 
 export type Member = { user: Entity; role: Role };
 
-export const useMembers = (system: string) => {
+export const useMembers = (system: string, reload = 0) => {
   const catalogApi = useApi(catalogApiRef);
   return useAsync(async () => {
     const groups = await catalogApi.getEntities({
@@ -77,7 +77,7 @@ export const useMembers = (system: string) => {
       users.items.forEach(u => u && members.push({ user: u, role }));
     }
     return members;
-  }, [system]);
+  }, [system, reload]);
 };
 
 /** Owner = platform-team (super admin): delete applications, make maintainers, everything. */
