@@ -117,13 +117,13 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
       </Box>
 
       <Box mt={2}>
-        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${project}-${env}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
+        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${env}-${project}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
       </Box>
 
       <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
         <Typography variant="subtitle2">Setup commands · {env} (control plane, <code>ssho control-plane</code>) — in order, safe to re-run</Typography>
         <Typography variant="caption" color="textSecondary">
-          Use them whenever the app does not exist yet in {project}-{env}. Explained in detail in the Tech Docs tab of {repo}-gitops.
+          Use them whenever the app does not exist yet in {env}-{project}. Explained in detail in the Tech Docs tab of {repo}-gitops.
         </Typography>
         <SetupSteps steps={steps.filter(x => x.env === 'once' || x.env === env)} />
       </Box>

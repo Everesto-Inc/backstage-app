@@ -12,8 +12,8 @@ describe('setupCommands', () => {
     const all = steps.map(s => s.cmd).join('\n');
     expect(all).toContain('platform/tenants/orchid/python-backend.yaml');   // app-of-apps: no kubectl apply per app
     expect(all).toContain('application prod-python-backend');   // env-first ArgoCD names
-    expect(all).toContain('-n orchid-dev');
-    expect(all).toContain('-n orchid-prod');
+    expect(all).toContain('-n dev-orchid');
+    expect(all).toContain('-n prod-orchid');
     expect(all).toContain('application dev-python-backend');
   });
 
@@ -32,8 +32,8 @@ describe('setupCommands', () => {
 describe('applySecretsCmd', () => {
   it('forces the ESO sync and restarts only this app in this namespace', () => {
     expect(applySecretsCmd('python-backend', 'orchid', 'prod')).toBe(
-      'sudo kubectl -n orchid-prod annotate externalsecret python-backend force-sync=$(date +%s) --overwrite\n' +
-      'sudo kubectl -n orchid-prod rollout restart deployment python-backend',
+      'sudo kubectl -n prod-orchid annotate externalsecret python-backend force-sync=$(date +%s) --overwrite\n' +
+      'sudo kubectl -n prod-orchid rollout restart deployment python-backend',
     );
   });
 });

@@ -113,7 +113,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               </Typography>
             )}
             <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
-              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates {project}-prod on first use).
+              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates prod-{project} on first use).
               {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev.</>}
             </Typography>
           </>
@@ -122,7 +122,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Box display="flex" alignItems="center" style={{ gap: 16 }} mb={1}>
               <Box display="flex" alignItems="center" style={{ gap: 6 }}><ToolLogo tool={argocd} size={22} /><b>ArgoCD</b></Box>
               <Box display="flex" alignItems="center" style={{ gap: 6 }}><ToolLogo tool={infisical} size={22} /><b>Infisical</b> secrets</Box>
-              <Typography variant="caption" color="textSecondary">namespace <b>{project}-dev</b> · manual sync · prod via Promote</Typography>
+              <Typography variant="caption" color="textSecondary">namespace <b>dev-{project}</b> · manual sync · prod via Promote</Typography>
             </Box>
 
             <TextField select fullWidth variant="outlined" margin="dense" label="CI application (its image is deployed)" value={repo}

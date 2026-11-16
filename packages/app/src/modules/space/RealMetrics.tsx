@@ -163,7 +163,7 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   return (
     <>
       <div className={c.metrics}>
-        <Metric label={`dev · ns ${project}-dev · manual sync`}>
+        <Metric label={`dev · ns dev-${project} · manual sync`}>
           <Box>
             {env(dev)}{argoBadge('dev')}
             {entity.metadata.annotations?.['everesto.live/url-dev'] && (
@@ -171,7 +171,7 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
             )}
           </Box>
         </Metric>
-        <Metric label={`prod · ns ${project}-prod · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
+        <Metric label={`prod · ns prod-${project} · manual sync`}><Box>{env(prod)}{prod ? argoBadge('prod') : null}</Box></Metric>
         <Metric label="GitOps repo">{d?.gitopsRepo ? <Link href={d.gitopsRepo} target="_blank" rel="noopener">{repo}-gitops</Link> : <Muted>—</Muted>}</Metric>
       </div>
       <Box px={3} py={1.5}>

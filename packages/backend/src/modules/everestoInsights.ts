@@ -386,7 +386,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const envs = await Promise.all((['dev', 'prod'] as const).map(async e => ({
               env: e,
               argo: await argoApp(`${e}-${repo}`),
-              k8s: await workloads(`${project}-${e}`, repo),
+              k8s: await workloads(`${e}-${project}`, repo), // namespace env-first (everestoDeploy ns())
             })));
             res.json({ clusterAccess: envs.some(e => e.k8s !== undefined), envs });
           } catch (e) { fail(res, e); }

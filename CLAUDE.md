@@ -274,7 +274,7 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
      CHANGE_ME), identity `eso-<app>` (viewer) — its login shown once as a kubectl command (secret `infisical-<app>-auth`).
   2. public repo `<app>-gitops`: `apps/dev` (newest image), `argocd/argocd.yaml`, `argocd/secret-stores.yaml`.
   3. catalog Resource `<app>-gitops` (dependsOn the CI component).
-- Default env **dev** (ns `<project>-dev`). **Every ArgoCD sync is manual.** "Deploy to dev" = pick one of the last
+- Naming is env-first: ArgoCD apps `<env>-<app>` (dev-python-backend), namespaces `<env>-<space>` (dev-orchid). Default env **dev**. **Every ArgoCD sync is manual.** "Deploy to dev" = pick one of the last
   5 builds → tag committed to `apps/dev`. "Promote to prod" = PR (prod tag := dev tag); the first promote also creates
   `apps/prod`, ns `<project>-prod`, the prod secrets in Infisical and `argocd/argocd-prod.yaml`.
 - **Delete deployment** (owners): deletes `<app>-gitops`, catalog Resource, Infisical project `<app>-gitops` + identity `eso-<app>`. Kept: ghcr.io images only (the kubectl command also removes the apps, both stores and `infisical-<app>-auth`). Delete application does the same for its deployment.

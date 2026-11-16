@@ -63,7 +63,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
   return (
     <Box>
       <Box display="flex" alignItems="center" mb={1}>
-        <Typography variant="body2" color="textSecondary">Live, read-only · only {project}-dev / {project}-prod · refreshed when you open the tab</Typography>
+        <Typography variant="body2" color="textSecondary">Live, read-only · only dev-{project} / prod-{project} · refreshed when you open the tab</Typography>
         <Box ml="auto"><Button size="small" onClick={data.retry}>Refresh</Button></Box>
       </Box>
       <Grid container spacing={2}>
@@ -74,7 +74,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
           return (
             <Grid item xs={12} key={env}>
               <Box {...box}>
-                <Typography variant="h6">{env} · ns {project}-{env}</Typography>
+                <Typography variant="h6">{env} · ns {env}-{project}</Typography>
                 {!argo?.exists ? (
                   <Typography variant="body2" color="textSecondary">
                     ArgoCD app {env}-{repo} not created yet{env === 'prod' ? ' — first Promote to prod, then the setup commands (Secrets tab)' : ''}.
