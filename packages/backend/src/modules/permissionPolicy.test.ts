@@ -20,14 +20,15 @@ describe('PlatformTeamPermissionPolicy', () => {
     }
   });
 
-  it('lets space members (developer and up) and platform-team run templates', async () => {
-    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.ALLOW);
+  it('lets maintainers, managers, entity managers and platform-team run templates', async () => {
     expect(await decide(taskCreatePermission, ['group:default/orchid-maintainers'])).toBe(AuthorizeResult.ALLOW);
+    expect(await decide(taskCreatePermission, ['group:default/orchid-managers'])).toBe(AuthorizeResult.ALLOW);
     expect(await decide(taskCreatePermission, ['group:default/blackbuck-admins'])).toBe(AuthorizeResult.ALLOW); // entity admin
     expect(await decide(taskCreatePermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
   });
 
-  it('denies templates to viewers and users without a space', async () => {
+  it('denies templates to developers, viewers and users without a space (developers create nothing)', async () => {
+    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.DENY);
     expect(await decide(taskCreatePermission, ['group:default/orchid-viewers'])).toBe(AuthorizeResult.DENY);
     expect(await decide(taskCreatePermission, [])).toBe(AuthorizeResult.DENY);
   });

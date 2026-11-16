@@ -14,7 +14,7 @@ import { Config } from '@backstage/config';
 import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
-import { ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
+import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
 import { argoApp, podLogs, workloads } from './everestoK8s';
@@ -370,7 +370,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
         const member = async (req: express.Request, repo: string) => {
           const { refs } = await caller(req);
           const { project } = await appInfo(await githubToken(config, OWNER), repo);
-          if (!allowed(refs, project, ['owners', 'maintainers', 'developers', 'viewers'])) {
+          if (!allowed(refs, project, [...ROLE.MEMBER])) {
             throw Object.assign(new Error(`only members of ${project} can see its cluster resources`), { status: 403 });
           }
           return project;
@@ -459,7 +459,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const { refs, who } = await caller(req);
             const token = await githubToken(config, OWNER);
             const { project } = await appInfo(token, repo);
-            if (!allowed(refs, project, ['owners', 'maintainers', 'developers'])) { res.status(403).json({ error: `only members of ${project} can run builds` }); return; }
+            if (!allowed(refs, project, [...ROLE.DEV])) { res.status(403).json({ error: `only members of ${project} can run builds` }); return; }
             const r = await gh(token, 'POST', `/repos/${OWNER}/${repo}/actions/workflows/ci.yml/dispatches`, { ref: 'main' });
             if (r.status === 403) { res.status(403).json({ error: 'the GitHub App needs the permission "Actions: Read and write" to start builds' }); return; }
             if (!r.ok) { res.status(502).json({ error: `GitHub: cannot start build (${r.status})` }); return; }

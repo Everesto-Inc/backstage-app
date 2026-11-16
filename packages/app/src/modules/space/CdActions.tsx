@@ -44,8 +44,8 @@ const useEveresto = () => {
 };
 
 const useRoles = (project: string) => {
-  const r = useSpaceRole(project); // includes entity admins
-  return { owner: r.superAdmin, maintainer: r.maintainer, member: r.developer };
+  const r = useSpaceRole(project); // includes entity managers
+  return { owner: r.superAdmin, manager: r.manager, maintainer: r.maintainer, member: r.developer };
 };
 
 export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
@@ -72,9 +72,11 @@ export const CdActions = ({ repo, project, devTag, prodTag, onChange }: {
   return (
     <Box display="flex" flexWrap="wrap" style={{ gap: 8 }}>
       <Button size="small" variant="outlined" color="primary" onClick={() => setDialog('deploy')}>Deploy to dev</Button>
-      <Button size="small" variant="outlined" color="primary" disabled={!devTag || devTag === prodTag} onClick={() => setDialog('promote')}>
-        Promote {devTag ?? ''} to prod
-      </Button>
+      {roles.manager && (
+        <Button size="small" variant="outlined" color="primary" disabled={!devTag || devTag === prodTag} onClick={() => setDialog('promote')}>
+          Promote {devTag ?? ''} to prod
+        </Button>
+      )}
 
       <Dialog open={!!dialog} onClose={busy ? undefined : close} maxWidth="sm" fullWidth>
         <DialogTitle>

@@ -33,6 +33,16 @@ describe('allowed', () => {
   it('lets platform-team do everything', () => {
     expect(allowed(['group:default/platform-team'], 'orchid', ['owners'])).toBe(true);
   });
+  it('separates maintainer (create) from manager (prod)', () => {
+    const maint = ['group:default/orchid-maintainers'];
+    const mgr = ['group:default/orchid-managers'];
+    expect(allowed(maint, 'orchid', ['managers', 'maintainers'])).toBe(true);
+    expect(allowed(maint, 'orchid', ['managers'])).toBe(false);
+    expect(allowed(mgr, 'orchid', ['managers'])).toBe(true);
+    expect(allowed([...maint, ...mgr], 'orchid', ['managers'])).toBe(true); // both ticks = union
+    expect(allowed(['group:default/orchid-developers'], 'orchid', ['managers', 'maintainers'])).toBe(false);
+  });
+
   it('checks the role inside the project', () => {
     const refs = ['group:default/orchid-maintainers'];
     expect(allowed(refs, 'orchid', ['owners', 'maintainers'])).toBe(true);

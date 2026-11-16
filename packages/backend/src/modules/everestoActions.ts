@@ -145,7 +145,7 @@ function requireSpaceMember(entityOf: (space: string) => Promise<string>) {
     schema: {
       input: {
         project: z => z.string().describe('System entity ref of the space, e.g. system:default/orchid'),
-        roles: z => z.array(z.string()).default(['owners', 'maintainers', 'developers']),
+        roles: z => z.array(z.string()).default(['managers', 'maintainers']), // creating = maintainer/manager
       },
     },
     async handler(ctx) {

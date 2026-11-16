@@ -83,7 +83,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
           </Button>
         ))}
         <Typography variant="caption" color="textSecondary" style={{ marginLeft: 8 }}>
-          {env === 'prod' ? 'prod: only maintainers and owners can change secrets' : 'dev: developers, maintainers and owners can change secrets'}
+          {env === 'prod' ? 'prod: only managers can change secrets' : 'dev: developers, maintainers and managers can change secrets'}
         </Typography>
         {d?.infisicalUrl && <Box ml="auto"><Link href={d.infisicalUrl} target="_blank" rel="noopener">Open in Infisical</Link></Box>}
       </Box>
@@ -110,7 +110,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
             )}
           </div>
         ))}
-        {d && !canEdit && <Typography variant="caption" color="textSecondary">You can see the names; changing {env} secrets needs {env === 'prod' ? 'maintainer or owner' : 'developer, maintainer or owner'} rights in {project}.</Typography>}
+        {d && !canEdit && <Typography variant="caption" color="textSecondary">You can see the names; changing {env} secrets needs {env === 'prod' ? 'manager' : 'developer, maintainer or manager'} rights in {project}.</Typography>}
         <Typography variant="caption" color="textSecondary" component="div" style={{ marginTop: 8 }}>
           Values are never shown here — only written. ESO syncs within 5 minutes; the pod reads them at start.
         </Typography>

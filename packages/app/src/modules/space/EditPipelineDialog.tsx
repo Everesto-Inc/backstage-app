@@ -35,11 +35,10 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const project = String(entity.spec?.system ?? '');
   const sonarKey = entity.metadata.annotations?.['sonarqube.org/project-key'];
   const role = useSpaceRole(project); // includes entity admins
-  const isPlatform = role.superAdmin;
   const canEdit = role.maintainer;
   // platform systems (Backstage itself, Loop) are never deletable from Backstage
   const isProtected = ['backstage', 'loop'].includes(project) || entity.metadata.annotations?.['everesto.live/protected'] === 'true';
-  const canDelete = !isProtected && isPlatform; // delete application: owner (super admin) only
+  const canDelete = !isProtected && role.manager; // delete application: managers (incl. entity managers) + owner
 
   // repository only (no CI): nothing to switch, just Delete
   const tools = repoOnly ? [] : TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));

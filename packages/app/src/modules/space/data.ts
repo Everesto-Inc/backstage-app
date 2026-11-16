@@ -15,9 +15,10 @@ import useAsync from 'react-use/esm/useAsync';
  */
 
 // owner = platform-team (super admin) — not a per-space role
-export const ROLES = ['maintainers', 'developers', 'viewers'] as const;
+export const ROLES = ['managers', 'maintainers', 'developers', 'viewers'] as const;
 export type Role = (typeof ROLES)[number];
 export const ROLE_LABEL: Record<Role, string> = {
+  managers: 'Manager',
   maintainers: 'Maintainer',
   developers: 'Developer',
   viewers: 'Viewer',
@@ -89,8 +90,9 @@ export const useIsProjectOwner = (_system: string) => {
 
 /** maintainers + owners (+ platform-team): create deployments, promote, change tools. */
 /**
- * My role in a space. owner = platform-team (super admin) · entity admin (<entity>-admins) = maintainer of every
- * space of that entity · maintainer / developer / viewer = the space's groups. Backend enforces the same rules.
+ * My role in a space. Owner = platform-team (super admin) · Entity Manager (<entity>-admins) = Manager of every space
+ * of that entity · Manager / Maintainer / Developer / Viewer = the space's groups (Manager + Maintainer can be combined).
+ * Backend enforces the same rules (packages/backend/src/modules/everestoRoles.ts).
  */
 export const useSpaceRole = (system: string) => {
   const identityApi = useApi(identityApiRef);
@@ -103,12 +105,14 @@ export const useSpaceRole = (system: string) => {
   const refs = value?.refs ?? [];
   const has = (g: string) => refs.includes(`group:default/${g}`);
   const superAdmin = has('platform-team');
-  const entityAdmin = !!value?.entity && has(`${value.entity}-admins`);
-  const maintainer = superAdmin || entityAdmin || has(`${system}-maintainers`);
-  const developer = maintainer || has(`${system}-developers`);
-  return { loaded: !!value, superAdmin, entityAdmin, maintainer, developer, member: developer || has(`${system}-viewers`) };
+  const entityAdmin = !!value?.entity && has(`${value.entity}-admins`); // Entity Manager = Manager of all its spaces
+  const manager = superAdmin || entityAdmin || has(`${system}-managers`); // prod, delete apps, members
+  const maintainer = manager || has(`${system}-maintainers`); // create CI/repo/CD, deploy dev, delete deployments
+  const developer = maintainer || has(`${system}-developers`); // code via PR, dev secrets, Run build
+  return { loaded: !!value, superAdmin, entityAdmin, manager, maintainer, developer, member: developer || has(`${system}-viewers`) };
 };
 
 export const useIsProjectMaintainer = (system: string) => useSpaceRole(system).maintainer;
+export const useIsProjectManager = (system: string) => useSpaceRole(system).manager;
 
 export const refOf = (e: Entity) => stringifyEntityRef(e);

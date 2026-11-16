@@ -256,22 +256,37 @@ export const ProjectPipelines = () => {
   const { value, loading, error } = useProjectParts(project);
   const isOwner = useIsProjectOwner(project);
   const demo = useDemoData();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<string | undefined>(); // stack preselected: 'python' | 'repo'
   const [deploying, setDeploying] = useState(false);
-  const canDeploy = useIsProjectMaintainer(project);
+  const canCreate = useIsProjectMaintainer(project); // maintainers + managers (+ entity managers, owner)
 
   if (loading) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
   const { ci, repoOnly, cd } = value!;
 
-  const back = domain && (
-    <EntityRefLink entityRef={parseEntityRef(domain, { defaultKind: 'domain' })} style={{ textDecoration: 'none' }}>
-      <Button size="small" startIcon={<ArrowBack />}>{domain} · all projects</Button>
-    </EntityRefLink>
+  // header on every space page: "DevOps Space – Orchid", back to the entity's DevOps Spaces, create buttons (maintainers+)
+  const back = (
+    <Box display="flex" alignItems="center" style={{ gap: 16, flexWrap: 'wrap' }}>
+      {domain && (
+        <EntityRefLink entityRef={parseEntityRef(domain, { defaultKind: 'domain' })} style={{ textDecoration: 'none' }}>
+          <Button variant="outlined" size="small" startIcon={<ArrowBack />}>DevOps Spaces · {domain}</Button>
+        </EntityRefLink>
+      )}
+      <Typography variant="h5" style={{ fontWeight: 800 }}>
+        {String(entity.metadata.title ?? project).startsWith('DevOps Space') ? entity.metadata.title : `DevOps Space – ${entity.metadata.title ?? project}`}
+      </Typography>
+    </Box>
+  );
+  const createButtons = canCreate && !demo && (
+    <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
+      <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
+      <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('python')}>Create pipeline</Button>
+    </Box>
   );
   const dialog = (
     <>
-      <CreatePipelineDialog project={project} open={creating} onClose={() => setCreating(false)} />
+      <CreatePipelineDialog project={project} open={!!creating} initialStack={creating ?? 'python'} onClose={() => setCreating(undefined)} />
       <CreateDeploymentDialog project={project} open={deploying} onClose={() => setDeploying(false)}
         apps={ci.filter(a => !cd.some(r => r.metadata.name === `${a.metadata.name}-gitops`))} />
     </>
@@ -281,14 +296,14 @@ export const ProjectPipelines = () => {
   if (ci.length + repoOnly.length + cd.length === 0)
     return (
       <Box>
-        {back}
+        <Box display="flex" alignItems="center" mb={2}>{back}{createButtons}</Box>
         <Box className={classes.empty} mt={1}>
           <AccountTreeIcon color="disabled" style={{ fontSize: 48 }} />
           <Typography variant="h5" gutterBottom>No pipelines yet</Typography>
           <Typography variant="body2" color="textSecondary" paragraph>
-            Create your first application — it gets a CI pipeline (build, test, scan, image) and a CD pipeline (deploy).
+            Create a pipeline (CI: build, test, scan, image), a repository (no pipeline), then a deployment (CD).
           </Typography>
-          <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>Create pipeline</Button>
+          {!canCreate && <Typography variant="body2" color="textSecondary">Only maintainers and managers of this space can create.</Typography>}
         </Box>
         {dialog}
       </Box>
@@ -309,12 +324,7 @@ export const ProjectPipelines = () => {
     <Box>
       <Box display="flex" alignItems="center" mb={2}>
         {back}
-        <Box ml="auto" display="flex" style={{ gap: 8 }}>
-          {canDeploy && !demo && (
-            <Button variant="outlined" color="primary" startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
-          )}
-          <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>Create pipeline</Button>
-        </Box>
+        {createButtons}
       </Box>
 
       {!demo && <RealSummary ci={ci} />}

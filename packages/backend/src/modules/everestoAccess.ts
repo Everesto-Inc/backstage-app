@@ -17,7 +17,7 @@ import { gh, githubToken } from './everestoActions';
 import { OWNER } from './everestoManage';
 
 type Perm = 'pull' | 'push' | 'maintain';
-const ROLES = ['developers', 'maintainers'] as const; // owner = platform-team = org owners
+const ROLES = ['developers', 'maintainers', 'managers'] as const; // owner = platform-team = org owners
 const RULESET = 'everesto-main';
 
 export type AccessReport = { dryRun: boolean; actions: string[]; warnings: string[] };
@@ -39,7 +39,7 @@ export async function expandEntityAdmins(refs: string[], spacesOf: (entity: stri
   for (const r of refs) {
     const m = r.match(ENTITY_ADMIN);
     if (!m) continue;
-    for (const space of await spacesOf(m[1])) extra.push(`group:default/${space}-maintainers`);
+    for (const space of await spacesOf(m[1])) extra.push(`group:default/${space}-managers`);
   }
   return [...new Set([...refs, ...extra])];
 }
@@ -59,7 +59,7 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
     // entity admins of this space's entity are maintainers here too
     const admins = ((entityAdmins.find(g => g.metadata.name === `${sys.spec?.domain}-admins`)?.spec?.members ?? []) as string[])
       .map(m => m.replace(/^user:(default\/)?/, '').toLowerCase());
-    members.maintainers = [...new Set([...members.maintainers, ...admins])];
+    members.managers = [...new Set([...members.managers, ...admins])];
     const inSpace = (e: any) => e.spec?.system === name && e.metadata?.annotations?.['everesto.live/protected'] !== 'true';
     return {
       name,

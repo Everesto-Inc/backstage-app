@@ -16,6 +16,7 @@
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
+import { ROLE } from './everestoRoles';
 import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
 
 type Env = 'dev' | 'prod';
@@ -466,7 +467,7 @@ const mkdocs = (repo: string) => `site_name: ${repo}-gitops\nnav: [{ Runbook: in
 export async function createDeployment(config: Config, repo: string, d: DeploymentInput, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { info, project } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can create deployments`);
+  if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can create deployments`);
   const image = info.match(/everesto\.live\/image:\s*(\S+)/)?.[1];
   if (!image) throw err(409, `${repo} builds no image — CD needs a CI application with an image`);
   for (const x of [...d.secrets, ...d.config]) if (!NAME.test(x.name)) throw err(400, `invalid variable name ${x.name} (A-Z 0-9 _)`);
@@ -534,7 +535,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
 export async function deploy(config: Config, repo: string, tag: string, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { project } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can deploy`);
+  if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can deploy to dev`);
   if (!(await builds(config, repo)).some(b => b.tag === tag)) throw err(400, `${tag} is not one of the last successful builds`);
   const { gitops, dev } = await requireDeployment(token, repo);
   if (tagOf(dev) === tag) throw err(409, `dev already has ${tag} — click Sync in ArgoCD if it isn't running yet`);
@@ -554,7 +555,7 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
 export async function promote(config: Config, repo: string, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { project } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can promote`);
+  if (!allowed(refs, project, [...ROLE.PROD])) throw err(403, `only managers of ${project} can promote to prod`);
   const { gitops, dev, prod } = await requireDeployment(token, repo);
   const devTag = tagOf(dev)!;
   if (prod && tagOf(prod) === devTag) throw err(409, `prod already runs ${devTag}`);
@@ -629,7 +630,7 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   const token = await githubToken(config, OWNER);
   const { info, project } = await appInfo(token, repo);
   if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw err(403, `${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can delete deployments`);
+  if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can delete deployments`);
   const gitops = `${repo}-gitops`;
   const done: string[] = [];
   const docs = info.split(/\n---\n/);
@@ -667,7 +668,7 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
 export async function newEsoLogin(config: Config, repo: string, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { project } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) throw err(403, `only owners/maintainers of ${project} can create ESO logins`);
+  if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can create ESO logins`);
   await requireDeployment(token, repo);
   const { orgId, api } = await infisical(config);
   const name = `eso-${repo}`;
@@ -687,7 +688,7 @@ export async function newEsoLogin(config: Config, repo: string, refs: string[], 
 // ---------- secrets of a deployment (Infisical <repo>-gitops) — values are write-only ----------
 // dev: developers / maintainers / owners · prod: maintainers / owners. Listing (names only): any member.
 
-const SECRET_ROLES: Record<Env, string[]> = { dev: ['owners', 'maintainers', 'developers'], prod: ['owners', 'maintainers'] };
+const SECRET_ROLES: Record<Env, string[]> = { dev: [...ROLE.DEV], prod: [...ROLE.PROD] }; // prod secrets: managers
 
 async function secretsCtx(config: Config, repo: string) {
   const token = await githubToken(config, OWNER);
@@ -702,7 +703,7 @@ const refresh = applySecretsCmd;
 
 export async function secretsList(config: Config, repo: string, env: Env, refs: string[]) {
   const { project, api, ws } = await secretsCtx(config, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers', 'developers', 'viewers'])) throw err(403, `only members of ${project} can see secret names`);
+  if (!allowed(refs, project, [...ROLE.MEMBER])) throw err(403, `only members of ${project} can see secret names`);
   const r = await api('GET', `/api/v3/secrets/raw?workspaceId=${ws.id}&environment=${env}&secretPath=/`);
   if (!r.ok) throw err(502, `Infisical: cannot list secrets (${r.status})`);
   return {

@@ -11,13 +11,14 @@ import {
   makeStyles,
 } from '@material-ui/core';
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
-import { Member, ROLES, ROLE_LABEL, Role, useIsProjectMaintainer, useMembers } from './data';
+import { Member, ROLES, ROLE_LABEL, Role, useMembers, useSpaceRole } from './data';
 import { PreviewDialog } from './PreviewDialog';
 import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
-  maintainers: 'space manager: deployments, promote to prod, prod secrets, tools, add members (incl. maintainers)',
-  developers: 'push code via pull request, create CI pipelines, dev secrets — no prod, no delete',
+  managers: 'promote to prod, prod secrets, delete applications, add/remove developers and viewers',
+  maintainers: 'create CI / repositories / deployments, deploy to dev, change tools, delete deployments',
+  developers: 'push code via pull request, dev secrets, run builds — creates nothing, deletes nothing',
   viewers: 'read only',
 };
 
@@ -53,8 +54,9 @@ export const ProjectMembers = () => {
   const { entity } = useEntity();
   const project = entity.metadata.name;
   const { value, loading, error } = useMembers(project);
-  // maintainers (space managers) add developers, viewers and other maintainers of THEIR space; owner = platform-team
-  const isOwner = useIsProjectMaintainer(project);
+  // Managers add/remove developers and viewers of THEIR space; the Manager / Maintainer ticks are set by the owner
+  const myRole = useSpaceRole(project);
+  const isOwner = myRole.manager;
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Member | undefined>();
   const [email, setEmail] = useState('');
@@ -125,7 +127,7 @@ export const ProjectMembers = () => {
         <Box display="flex" style={{ gap: 12 }}>
           <TextField label="Email" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
           <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
-            {ROLES.map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
+            {ROLES.filter(r => myRole.superAdmin || r === 'developers' || r === 'viewers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
           </TextField>
         </Box>
       </PreviewDialog>

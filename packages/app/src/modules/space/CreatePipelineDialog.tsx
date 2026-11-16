@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -35,7 +35,7 @@ export const STACKS: Stack[] = [
   { soon: true, id: 'node', name: 'Node.js', hint: 'TypeScript · Express', logo: 'nodedotjs', build: 'npm test' },
   { soon: true, id: 'react', name: 'React', hint: 'frontend · Vite', logo: 'react', build: 'npm run build' },
   { soon: true, id: 'dotnet', name: '.NET', hint: 'ASP.NET Core', logo: 'dotnet', build: 'dotnet test' },
-  { soon: true, id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage', build: '' },
+  { id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage, docs', build: '' },
 ];
 
 type Cd = { id: string; name: string; hint: string; logo?: string; soon?: boolean };
@@ -87,11 +87,12 @@ const TEMPLATE_TOOL: Record<string, string> = {
   dependabot: 'dependabot',
 };
 
-export const CreatePipelineDialog = ({ project, open, onClose }: { project: string; open: boolean; onClose: () => void }) => {
+export const CreatePipelineDialog = ({ project, open, onClose, initialStack = 'python' }: { project: string; open: boolean; onClose: () => void; initialStack?: string }) => {
   const classes = useStyles();
   const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [stack, setStack] = useState('python');
+  const [stack, setStack] = useState(initialStack);
+  useEffect(() => { if (open) setStack(initialStack); }, [open, initialStack]);
   const [tools, setTools] = useState<string[]>(DEFAULT_ON);
   const repoOnly = stack === 'repo';
   const s = STACKS.find(x => x.id === stack)!;
@@ -158,13 +159,13 @@ export const CreatePipelineDialog = ({ project, open, onClose }: { project: stri
             const formData = {
               project: `system:default/${project}`,
               name,
-              stack,
+              stack: stack === 'repo' ? 'repository' : stack,
               description: '',
               visibility: 'public',
               // true/false switches of the template (Gitleaks + Trivy always run in the Loop guard)
-              sonarqube: tools.includes('quality'),
-              semgrep: tools.includes('semgrep'),
-              dependabot: tools.includes('dependabot'),
+              sonarqube: !repoOnly && tools.includes('quality'),
+              semgrep: !repoOnly && tools.includes('semgrep'),
+              dependabot: !repoOnly && tools.includes('dependabot'),
             };
             navigate(`/create/templates/default/create-pipeline?formData=${encodeURIComponent(JSON.stringify(formData))}`);
           }}

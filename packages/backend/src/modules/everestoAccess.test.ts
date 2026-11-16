@@ -4,7 +4,8 @@ describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
     expect(permissionFor('developers', 'ci')).toBe('push');
     expect(permissionFor('maintainers', 'ci')).toBe('maintain');
-    for (const r of ['developers', 'maintainers'] as const) {
+    expect(permissionFor('managers', 'ci')).toBe('maintain');
+    for (const r of ['developers', 'maintainers', 'managers'] as const) {
       for (const k of ['ci', 'gitops'] as const) expect(permissionFor(r, k)).not.toBe('admin');
     }
   });
@@ -31,9 +32,9 @@ describe('rulesetBody', () => {
 
 describe('expandEntityAdmins', () => {
   const spacesOf = async (entity: string) => (entity === 'blackbuck' ? ['orchid', 'lotus'] : []);
-  it('makes an entity admin maintainer of every space of THAT entity', async () => {
+  it('makes an entity manager MANAGER of every space of THAT entity', async () => {
     const refs = await expandEntityAdmins(['group:default/blackbuck-admins'], spacesOf);
-    expect(refs).toEqual(expect.arrayContaining(['group:default/orchid-maintainers', 'group:default/lotus-maintainers']));
+    expect(refs).toEqual(expect.arrayContaining(['group:default/orchid-managers', 'group:default/lotus-managers']));
   });
   it('adds nothing for other groups, and never crosses entities', async () => {
     expect(await expandEntityAdmins(['group:default/orchid-developers'], spacesOf)).toEqual(['group:default/orchid-developers']);

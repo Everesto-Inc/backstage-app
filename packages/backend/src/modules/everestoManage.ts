@@ -15,12 +15,16 @@
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken, sonarProvision, sonarRemove } from './everestoActions';
+import { ROLE } from './everestoRoles';
+
+export { ROLE };
 import { infisicalDelete } from './everestoDeploy';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
 /** Platform systems (domain platform): never deletable from Backstage — Backstage must not delete itself. */
 export const PROTECTED_SYSTEMS = ['backstage', 'loop'];
+
 /** …or any entity annotated everesto.live/protected: "true" (platform roots). */
 export const isProtected = (catalogInfo: string) => /everesto\.live\/protected:\s*["']?true/.test(catalogInfo);
 
@@ -132,8 +136,8 @@ export type ToolChange = Partial<Record<'sonarqube' | 'semgrep' | 'dependabot', 
 export async function setTools(config: Config, repo: string, change: ToolChange, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { info, project, sonarKey } = await appInfo(token, repo);
-  if (!allowed(refs, project, ['owners', 'maintainers'])) {
-    throw Object.assign(new Error(`only owners/maintainers of ${project} can change its tools`), { status: 403 });
+  if (!allowed(refs, project, [...ROLE.CREATE])) {
+    throw Object.assign(new Error(`only maintainers/managers of ${project} can change its tools`), { status: 403 });
   }
   let ci = await readFile(token, repo, '.github/workflows/ci.yml');
   const loop = ci?.match(/Everesto-Inc\/loop\/stages\/install@([0-9a-f]{40}) # (\S+)/);
@@ -194,8 +198,8 @@ export async function deleteApp(
   const token = await githubToken(config, OWNER);
   const { info, project, sonarKey } = await appInfo(token, repo);
   if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
-  if (!allowed(refs, project, [])) { // owner = platform-team (super admin) only
-    throw Object.assign(new Error(`only owners (platform admins) can delete applications`), { status: 403 });
+  if (!allowed(refs, project, [...ROLE.PROD])) { // managers (incl. entity managers) + owner
+    throw Object.assign(new Error(`only managers of ${project} (or the owner) can delete applications`), { status: 403 });
   }
   const done: string[] = [];
   const warn: string[] = [];
