@@ -52,18 +52,18 @@ Right after start, Guest may lack `platform-team` for ~20 s until the catalog ha
 
 # Product requirements — multi-tenant DevOps portal
 
-> Status: **draft / target design**. Nothing below is implemented yet.
+> Status: **implemented** (Nov 2026) except where marked *later*. Where an older section conflicts with §11–§13, §11–§13 win.
 
 ## 1. Hierarchy
 
 ```
 Platform  (Backstage itself — run by platform-admins)
  └── Entity        RARE ANIMAL name     e.g. blackbuck       tenant / organisation
-      └── Project  FLOWER name          e.g. orchid          unit of onboarding = one DevOps Space
-           └── Applications  <flower>-<what>                  each one ALWAYS has a CI part + a CD part
-                ├── orchid-java-backend      (CI repo)  ┐
-                ├── orchid-react-frontend    (CI repo)  ├─ CD: folders in ONE repo orchid-gitops-cd
-                └── orchid-storage-pipeline  (CI repo)  ┘
+      └── Space    FLOWER name          e.g. orchid          unit of onboarding = one DevOps Space
+           └── Applications  <tech>-<role> (no prefix)        CI repo, + CD repo once deployed
+                ├── python-backend           (CI repo) ── python-backend-gitops   (CD: apps/dev, apps/prod)
+                ├── react-frontend           (CI repo) ── react-frontend-gitops
+                └── scripts                  (repository only, no CI/CD)
 ```
 
 Rules:
@@ -157,29 +157,17 @@ Unmatched GitHub logins are refused (as today).
 
 Inside a space, Backstage **Software Template**:
 
-1. Name: `orchid-java-backend` (prefix = space's flower, fixed)
-2. SCM: **GitHub** (only option)
-3. Technology: **Java** (later Node, Python, Go …)
-4. Quality: **SonarQube** (existing, tools node)
-5. Secrets: **Infisical** (default, pre-selected)
-6. CD: **ArgoCD** (existing)
-
-Creates and registers:
-
-| Repo | Contains |
-|---|---|
-| `orchid-java-backend` | skeleton + GitHub Actions **CI**: test → SonarQube quality gate → build ARM image → push ghcr.io → bump tag in the space's gitops repo |
-| `orchid-gitops-cd` (one per **space**, created with the space) | folder `java-backend/` added for this app → **CD**: an ArgoCD ApplicationSet per space syncs every folder to namespace `orchid` |
-
-Plus SonarQube project, Infisical folder + ESO `ExternalSecret`, ArgoCD Application in the space's
-AppProject — all owned by the space. Same pattern as `backstage-app` ↔ `gitops-backstage`.
+**Create pipeline** (developers+): repo `<name>` from a skeleton (Python / Java / repository only) with Dockerfile,
+Loop CI (tests → Gitleaks → [Semgrep] → [SonarQube] → image build + Trivy → push ghcr.io on main), docs, catalog entry,
+app-registry entry. **Create deployment** (maintainers+): Infisical project `<app>-gitops`, repo `<app>-gitops`,
+tenant file in gitops-backstage (ArgoCD app, secret store, guardrails). Details: §12.
 
 ## 6. Mapping onto Backstage
 
 | Our concept | Backstage kind |
 |---|---|
 | Entity (animal) | `Domain` + `Group` type `organization` (`blackbuck`, `blackbuck-admins`) |
-| Project / Space (flower) | `System` + `Group` type `team` with role sub-groups (`orchid-owners`, `-maintainers`, `-developers`, `-viewers`) |
+| Project / Space (flower) | `System` + `Group` type `team` with role sub-groups (`orchid-managers`, `-maintainers`, `-developers`, `-viewers`) |
 | Application | `Component` (CI repo), `partOf` the System; space gitops repo = `Resource` of the System |
 | User | `User` (`metadata.name` = GitHub username, `profile.email` = invite email) |
 
@@ -210,10 +198,9 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 
 ## 9. Architecture decisions
 
-1. **One gitops repo per space** (`orchid-gitops-cd`, folder per app) instead of one per application:
-   half the repos, one ArgoCD ApplicationSet per space, one place to see what a space deploys.
-2. **Spaces, members and roles live in Backstage's Postgres** (custom catalog entity provider + small
-   API), not in git YAML — an invite must not be a git commit. Git keeps templates + app `catalog-info.yaml`.
+1. ~~One gitops repo per space~~ → **superseded (§12): one `<app>-gitops` repo per application.**
+2. ~~Spaces/members in Backstage's Postgres~~ → **superseded: spaces, roles and members live in the private
+   catalog repo `everesto-catalog`** (Backstage commits them; full history, no extra database).
 3. **Tool access is reconciled, not fired once.** Backstage is the source of truth; a scheduled backend
    job makes GitHub teams, SonarQube groups, ArgoCD AppProjects and Infisical match it (idempotent,
    repairs manual drift).
@@ -281,3 +268,30 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - Backstage has **no cluster access** — it returns kubectl commands. Tenant pods need node label
   `everesto.live/pool=tenants`. CD tool: ArgoCD only (no Ansible). Grafana: placeholder.
 - Backstage ↔ Infisical: identity `backstage-platform` (org Admin), keys INFISICAL_CLIENT_ID / _SECRET / _ORG_ID.
+
+## 13. Security + guardrails (decided 2026-11-19)
+
+- **App registry** `everesto-catalog/platform/apps.yaml` (repo → space) decides every permission; a repo's own
+  `catalog-info.yaml` is never trusted (catalog guard forces `spec.system` to the registry value).
+- **main**: PR only, 1 approval, code owners (CI + catalog → maintainers, `apps/prod` → managers), stale approvals
+  dismissed, last pusher can't approve; bypass only the Backstage GitHub App + org owners (logged by GitHub).
+- **ArgoCD**: developers/maintainers sync dev only, managers also prod; owner = admin.
+- **Who gives roles**: owner every role (several at once) · managers maintainer/developer/viewer · maintainers developer/viewer.
+- **Tenant guardrails** (platform tenant file, tenants can't change them): namespace with Pod Security baseline,
+  ResourceQuota = app × (replicas + 1) + 128 Mi (max 1536 Mi), LimitRange, NetworkPolicy (no traffic from other
+  tenants), no NodePort/LoadBalancer/volumes. Tenant ArgoCD projects may only create app kinds.
+- **Access sync** every 30 min: GitHub teams/rulesets/CODEOWNERS, ArgoCD roles, SonarQube groups + private projects.
+
+## Code map (packages/backend/src/modules)
+
+| File | What |
+|---|---|
+| `everestoInsights.ts` | the HTTP routes (/api/everesto) — every route checks the role itself |
+| `everestoPipeline.ts` | pipeline card data (GitHub runs, SonarQube, deployed tags) |
+| `everestoDeploy.ts` | CD flows: create / deploy / promote / delete, secrets |
+| `everestoManifests.ts` · `everestoRunbook.ts` · `everestoTenants.ts` · `everestoInfisical.ts` | pure YAML · runbook · platform tenant files · Infisical client |
+| `everestoStatus.ts` | status chain (plain-language "what is next") |
+| `everestoAccess.ts` · `everestoSonarAccess.ts` | access sync (GitHub, ArgoCD, SonarQube) |
+| `everestoMembers.ts` · `everestoSpaces.ts` · `everestoRegistry.ts` · `everestoCatalogGuard.ts` | members · create space · app registry · catalog guard |
+| `everestoManage.ts` · `everestoActions.ts` · `everestoYaml.ts` · `everestoCommon.ts` | app tools/delete · template actions + GitHub/Sonar clients · YAML parser helpers · shared helpers |
+
