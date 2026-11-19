@@ -25,7 +25,7 @@ import { AccessSyncCard } from './AccessSyncCard';
 const ROLE_RIGHTS: Record<Role, string> = {
   managers: 'everything a maintainer can + promote to prod, prod secrets, delete applications, add/remove maintainers',
   maintainers: 'create CI / repositories / deployments, deploy to dev, change tools, delete deployments, add/remove developers and viewers',
-  developers: 'push code via pull request, dev secrets, run builds — creates nothing, deletes nothing',
+  developers: 'create CI pipelines and repositories, push code via pull request, dev secrets, run builds — no deployments, deletes nothing',
   viewers: 'read only',
 };
 

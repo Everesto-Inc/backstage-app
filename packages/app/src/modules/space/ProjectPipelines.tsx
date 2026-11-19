@@ -9,7 +9,7 @@ import EditIcon from '@material-ui/icons/Edit';
 import AccountTreeIcon from '@material-ui/icons/AccountTree';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { useIsProjectMaintainer, useIsProjectOwner, useProjectParts } from './data';
+import { useSpaceRole, useIsProjectOwner, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
@@ -251,7 +251,9 @@ export const ProjectPipelines = () => {
   const demo = useDemoData();
   const [creating, setCreating] = useState<string | undefined>(); // stack preselected: 'python' | 'repo'
   const [deploying, setDeploying] = useState(false);
-  const canCreate = useIsProjectMaintainer(project); // maintainers + managers (+ entity managers, owner)
+  const role = useSpaceRole(project);
+  const canCreateCi = role.developer;   // Create pipeline / repository: developers and up
+  const canCreate = role.maintainer;    // Create deployment (CD): maintainers, managers (+ entity managers, owner)
 
   if (loading) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
@@ -259,10 +261,10 @@ export const ProjectPipelines = () => {
 
   // the page header already shows "DevOps Space – Orchid"; this page IS the space's home (all CI / CD / repositories)
   const back = null;
-  const createButtons = canCreate && !demo && (
+  const createButtons = canCreateCi && !demo && (
     <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
-      <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>
+      {canCreate && <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>}
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('python')}>Create pipeline</Button>
     </Box>
   );
@@ -285,7 +287,7 @@ export const ProjectPipelines = () => {
           <Typography variant="body2" color="textSecondary" paragraph>
             Create a pipeline (CI: build, test, scan, image), a repository (no pipeline), then a deployment (CD).
           </Typography>
-          {!canCreate && <Typography variant="body2" color="textSecondary">Only maintainers and managers of this space can create.</Typography>}
+          {!canCreateCi && <Typography variant="body2" color="textSecondary">Viewers can't create — developers create pipelines and repositories, maintainers and managers also deployments.</Typography>}
         </Box>
         {dialog}
       </Box>

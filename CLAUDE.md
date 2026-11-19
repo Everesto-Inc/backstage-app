@@ -120,9 +120,9 @@ enforce in the permission policy and to audit.
 |---|---|---|
 | **owner** | **platform-team** (super admin) — not a per-space group | everything, every space: delete applications, create/delete spaces and entities, add any member anywhere, change Backstage |
 | **entity admin** (`<entity>-admins`, optional — may be empty) | manager of a whole entity | = maintainer of EVERY space of that entity (sees and manages them all); later: create/delete spaces in it |
-| **manager** (`<space>-managers`) | runs ONE space | maintainer + **Promote to prod**, **prod secrets**, delete applications, add/remove developers and viewers |
-| **maintainer** (`<space>-maintainers`) | builds in ONE space | create CI / repositories / deployments, Deploy to dev, change tools, delete deployments (not prod) |
-| **developer** (`<space>-developers`) | team member | push code **via pull request only**, dev secrets, Run build — creates nothing, deletes nothing, no prod |
+| **manager** (`<space>-managers`) | runs ONE space | maintainer + **Promote to prod**, **prod secrets**, delete applications, add/remove maintainers |
+| **maintainer** (`<space>-maintainers`) | builds in ONE space | create CI / repositories / deployments, Deploy to dev, change tools, delete deployments (not prod), add/remove developers and viewers |
+| **developer** (`<space>-developers`) | team member | **create CI pipelines + repositories**, push code **via pull request only**, dev secrets, Run build — no deployments (CD), deletes nothing, no prod |
 | **viewer** (`<space>-viewers`) | read-only | see everything in the space (names of secrets, never values) |
 
 Platform entities (domain `platform`, annotation `everesto.live/protected`) can't be deleted from Backstage by anyone.

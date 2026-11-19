@@ -89,7 +89,7 @@ spec:
   type: team
   parent: ${entity}
   children: [${name}-managers, ${name}-maintainers, ${name}-developers, ${name}-viewers]
-${role('managers', 'manager', 'manager: maintainer + promote to prod, prod secrets, delete applications, add/remove developers & viewers')}${role('maintainers', 'maintainer', 'maintainer: create CI / repositories / deployments, deploy to dev, change tools, delete deployments')}${role('developers', 'developer', 'developer: code via pull request, dev secrets, run build — creates and deletes nothing')}${role('viewers', 'viewer', 'viewer: read only')}`;
+${role('managers', 'manager', 'manager: maintainer + promote to prod, prod secrets, delete applications, add/remove developers & viewers')}${role('maintainers', 'maintainer', 'maintainer: create CI / repositories / deployments, deploy to dev, change tools, delete deployments')}${role('developers', 'developer', 'developer: create CI pipelines + repositories, code via pull request, dev secrets, run build — no deployments, deletes nothing')}${role('viewers', 'viewer', 'viewer: read only')}`;
 }
 
 /** Pure: all.yaml with ./spaces/<name>.yaml added after the last space line (idempotent). */

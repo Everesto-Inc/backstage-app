@@ -163,7 +163,7 @@ function requireSpaceMember(entityOf: (space: string) => Promise<string>) {
     schema: {
       input: {
         project: z => z.string().describe('System entity ref of the space, e.g. system:default/orchid'),
-        roles: z => z.array(z.string()).default(['managers', 'maintainers']), // creating = maintainer/manager
+        roles: z => z.array(z.string()).default(['managers', 'maintainers', 'developers']), // CI pipeline / repository: developers and up (CD: maintainers, checked in everestoDeploy)
       },
     },
     async handler(ctx) {

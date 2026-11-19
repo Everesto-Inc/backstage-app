@@ -27,8 +27,8 @@ describe('PlatformTeamPermissionPolicy', () => {
     expect(await decide(taskCreatePermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
   });
 
-  it('denies templates to developers, viewers and users without a space (developers create nothing)', async () => {
-    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.DENY);
+  it('lets developers run templates (Create pipeline / repository); denies viewers and users without a space', async () => {
+    expect(await decide(taskCreatePermission, ['group:default/orchid-developers'])).toBe(AuthorizeResult.ALLOW);
     expect(await decide(taskCreatePermission, ['group:default/orchid-viewers'])).toBe(AuthorizeResult.DENY);
     expect(await decide(taskCreatePermission, [])).toBe(AuthorizeResult.DENY);
   });
