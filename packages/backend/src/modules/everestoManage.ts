@@ -18,7 +18,9 @@ import { gh, githubToken, sonarProvision, sonarRemove } from './everestoActions'
 import { ROLE } from './everestoRoles';
 
 export { ROLE };
-import { infisicalDelete, removeTenant } from './everestoDeploy';
+import { infisicalDelete } from './everestoInfisical';
+import { component, setAnnotation } from './everestoYaml';
+import { removeTenant } from './everestoTenants';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -57,8 +59,10 @@ export async function commit(token: string, repo: string, message: string, files
 export async function appInfo(token: string, repo: string) {
   const info = await readFile(token, repo, 'catalog-info.yaml');
   if (!info) throw Object.assign(new Error('not a Backstage application (no catalog-info.yaml)'), { status: 404 });
-  const project = info.match(/^ +system: *([a-z0-9-]+)/m)?.[1];
-  const sonarKey = info.match(/sonarqube\.org\/project-key:\s*([A-Za-z0-9_.:-]+)/)?.[1];
+  // the app's Component decides (never another document of the file, never a comment)
+  const c = component(info);
+  const project = c?.system && /^[a-z0-9-]+$/.test(c.system) ? c.system : undefined;
+  const sonarKey = c?.annotations['sonarqube.org/project-key'];
   if (!project) throw Object.assign(new Error('catalog-info.yaml has no spec.system'), { status: 409 });
   return { info, project, sonarKey, app: repo.startsWith(`${project}-`) ? repo.slice(project.length + 1) : repo };
 }
@@ -78,16 +82,8 @@ const STEP_RE = {
   sonarqube: /\n? {6}- name: Quality gate \(SonarQube\)\n(?: {8}.*\n)*/,
   semgrep: /\n? {6}- name: Code security \(Semgrep\)\n(?: {8}.*\n)*/,
 };
-const ANNOTATION = {
-  sonarqube: (repo: string) => `    sonarqube.org/project-key: ${repo}\n`,
-  semgrep: () => `    everesto.live/semgrep: "on"\n`,
-  dependabot: () => `    everesto.live/dependabot: "on"\n`,
-};
-const ANNOTATION_RE = {
-  sonarqube: /^ {4}sonarqube\.org\/project-key:.*\n/m,
-  semgrep: /^ {4}everesto\.live\/semgrep:.*\n/m,
-  dependabot: /^ {4}everesto\.live\/dependabot:.*\n/m,
-};
+const ANNOTATION_KEY = { sonarqube: 'sonarqube.org/project-key', semgrep: 'everesto.live/semgrep', dependabot: 'everesto.live/dependabot' } as const;
+const ANNOTATION_VALUE = { sonarqube: (repo: string) => repo, semgrep: () => 'on', dependabot: () => 'on' };
 const dependabotYml = (stack: string) => `version: 2
 updates:
   - package-ecosystem: ${stack === 'java' ? 'maven' : 'pip'}
@@ -120,11 +116,13 @@ export function editCiTools(
     const want = change[tool];
     if (want === undefined || want === has[tool]) continue;
     if (want) {
-      ci = ci.replace(/(\n {6}- name: Build \+ scan image \(Trivy\))/, `\n${STEP[tool](sha, version)}$1`);
-      catalog = catalog.replace(/(^ {4}everesto\.live\/image:.*\n)/m, `$1${ANNOTATION[tool](repo)}`);
+      const anchor = /(\n {6}- name: Build \+ scan image \(Trivy\))/;
+      if (!anchor.test(ci)) throw Object.assign(new Error('ci.yml was changed by hand (no "Build + scan image (Trivy)" step) — add the stage by hand'), { status: 409 });
+      ci = ci.replace(anchor, `\n${STEP[tool](sha, version)}$1`);
+      catalog = setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY[tool], ANNOTATION_VALUE[tool](repo));
     } else {
       ci = ci.replace(STEP_RE[tool], '\n');
-      catalog = catalog.replace(ANNOTATION_RE[tool], '');
+      catalog = setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY[tool], undefined);
     }
     done.push(`${want ? 'add' : 'remove'} ${tool}`);
   }
@@ -161,9 +159,7 @@ export async function setTools(config: Config, repo: string, change: ToolChange,
 
   if (change.dependabot !== undefined && change.dependabot !== has.dependabot) {
     files.push({ path: '.github/dependabot.yml', content: change.dependabot ? dependabotYml(stack) : null });
-    catalog = change.dependabot
-      ? catalog.replace(/(^ {4}everesto\.live\/image:.*\n)/m, `$1${ANNOTATION.dependabot()}`)
-      : catalog.replace(ANNOTATION_RE.dependabot, '');
+    catalog = setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY.dependabot, change.dependabot ? 'on' : undefined);
     done.push(`${change.dependabot ? 'add' : 'remove'} dependabot`);
   }
   if (!done.length) return { changed: false, done };

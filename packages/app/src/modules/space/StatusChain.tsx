@@ -23,8 +23,6 @@ const colorOf = (s: StepState) => ({ ok: STATUS.good, wait: STATUS.warning, fail
 const mins = (sec: number) => (sec < 60 ? `${sec} s` : `~${Math.ceil(sec / 60)} min`);
 
 /** Status of both environments; refreshes every 20 s while something is pending. */
-export const useStatus = (entity: Entity) => useStatusOf(insightsTarget(entity).repo);
-
 export const useStatusOf = (repo: string) => {
   const api = useEveresto();
   const data = useAsyncRetry(async (): Promise<EnvStatus[]> => (await api('GET', `/apps/${encodeURIComponent(repo)}/status`)).envs, [repo]);
@@ -39,6 +37,8 @@ export const useStatusOf = (repo: string) => {
   }, [pending, retry, loadedAt]);
   return { ...data, loadedAt };
 };
+
+export const useStatus = (entity: Entity) => useStatusOf(insightsTarget(entity).repo);
 
 /** One-line summary for a card: "Running" / "⏳ Cluster access to secrets · ~2 min" / "✕ Needs you: …". */
 export const summarize = (e?: EnvStatus) => {
@@ -62,10 +62,6 @@ export const StatusLine = ({ env }: { env?: EnvStatus }) => {
     </Box>
   );
 };
-
-export const StatusChain = ({ entity }: { entity: Entity }) => (
-  <StatusChainOf repo={insightsTarget(entity).repo} project={String(entity.spec?.system ?? '')} />
-);
 
 /** Same, by name — used right after Create deployment, before the catalog entry exists. */
 export const StatusChainOf = ({ repo, project }: { repo: string; project: string }) => {
@@ -146,3 +142,7 @@ export const StatusChainOf = ({ repo, project }: { repo: string; project: string
     </Box>
   );
 };
+
+export const StatusChain = ({ entity }: { entity: Entity }) => (
+  <StatusChainOf repo={insightsTarget(entity).repo} project={String(entity.spec?.system ?? '')} />
+);

@@ -58,7 +58,7 @@ export const ProjectConnections = () => {
                 {connected ? (
                   <span className={classes.pill} style={{ color: STATUS.good, background: 'rgba(12,163,12,0.12)' }}>
                     <CheckCircle style={{ fontSize: 14 }} />
-                    {level === 'platform' ? 'Provided by platform' : level === 'none' ? 'Ready — no connection needed' : 'Connected'}
+                    {{ platform: 'Provided by platform', none: 'Ready — no connection needed', project: 'Connected' }[level]}
                   </span>
                 ) : (
                   <span className={classes.pill} style={{ border: '1px solid rgba(128,128,128,0.4)' }}>Not connected</span>

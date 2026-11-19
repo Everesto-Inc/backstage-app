@@ -87,8 +87,10 @@ export const ago = (iso?: string) => {
   return `${Math.round(s / 86400)} d ago`;
 };
 
-export const fmtDuration = (sec?: number) =>
-  sec === undefined ? '—' : sec < 60 ? `${Math.round(sec)} s` : `${(sec / 60).toFixed(1)} min`;
+export const fmtDuration = (sec?: number) => {
+  if (sec === undefined) return '—';
+  return sec < 60 ? `${Math.round(sec)} s` : `${(sec / 60).toFixed(1)} min`;
+};
 
 /** The app's namespace per environment: dev-<key> / prod-<key> (key chosen at Create deployment; older: the space). */
 export const nsOf = (e: Entity, env: 'dev' | 'prod') =>

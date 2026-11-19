@@ -17,6 +17,7 @@ import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
+import { kustomizeTag } from './everestoYaml';
 import { collectEsoState, explainStatus, probeUrl } from './everestoStatus';
 import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
@@ -155,7 +156,7 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
     if (!k) continue;
     const dep = await gh(token, 'GET', `/repos/${OWNER}/${gitops}/commits?path=apps/${env}&per_page=1`);
     const c = dep.json?.[0];
-    envs[env] = { tag: k.match(/newTag:\s*(\S+)/)?.[1], at: c?.commit?.committer?.date, message: c?.commit?.message?.split('\n')[0], url: c?.html_url };
+    envs[env] = { tag: kustomizeTag(k), at: c?.commit?.committer?.date, message: c?.commit?.message?.split('\n')[0], url: c?.html_url };
   }
   // live ArgoCD status (read-only cluster access) — undefined outside the cluster or without RBAC
   const argo: Record<string, unknown> = {};
@@ -428,20 +429,20 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const token = await githubToken(config, OWNER);
             const meta = JSON.parse((await readFile(token, `${repo}-gitops`, 'deployment.json')) ?? '{}');
             const nsKey = String(meta.nsKey ?? project);
-            const envs = await Promise.all((['dev', 'prod'] as const).map(async env => {
-              const namespace = `${env}-${nsKey}`;
+            const envs = await Promise.all((['dev', 'prod'] as const).map(async envName => {
+              const namespace = `${envName}-${nsKey}`;
               const [git, argo, wl, eso, url] = await Promise.all([
-                readFile(token, `${repo}-gitops`, `apps/${env}/kustomization.yaml`),
-                argoApp(`${env}-${repo}`),
+                readFile(token, `${repo}-gitops`, `apps/${envName}/kustomization.yaml`),
+                argoApp(`${envName}-${repo}`),
                 workloads(namespace, repo),
-                collectEsoState(repo, env, namespace),
-                env === 'dev' && meta.publicUrl ? probeUrl(devHost(repo)) : Promise.resolve(undefined),
+                collectEsoState(repo, envName, namespace),
+                envName === 'dev' && meta.publicUrl ? probeUrl(devHost(repo)) : Promise.resolve(undefined),
               ]);
               const steps = explainStatus({
-                env, repo, namespace, clusterReadable: argo !== undefined, gitConfigured: !!git, argo, ...eso,
+                env: envName, repo, namespace, clusterReadable: argo !== undefined, gitConfigured: !!git, argo, ...eso,
                 pods: wl?.pods, replicas: wl?.deployments?.[0]?.replicas, events: wl?.events?.map(e => `${e.reason}: ${e.message}`), url,
               });
-              return { env, namespace, steps };
+              return { env: envName, namespace, steps };
             }));
             res.json({ envs });
           } catch (e) { fail(res, e); }

@@ -23,7 +23,7 @@ export const CreateSpaceDialog = ({ entity, entityTitle, open, onClose, onCreate
   const sugg = useAsync(async (): Promise<{ canCreate: boolean; free: string[] }> =>
     (open ? api('GET', `/entities/${encodeURIComponent(entity)}/spaces/suggest`) : { canCreate: false, free: [] }), [open, entity]);
 
-  const free = sugg.value?.free ?? [];
+  const free = useMemo(() => sugg.value?.free ?? [], [sugg.value]);
   const shown = useMemo(() => free.slice((page * 12) % Math.max(free.length, 1)).concat(free).slice(0, 12), [free, page]);
   const formatProblem = name && !NAME.test(name) ? 'Use 2–24 characters: lowercase letters, digits and "-", starting with a letter.' : undefined;
   const takenHint = name && NAME.test(name) && free.length > 0 && !free.includes(name) ? 'Not in the suggestions — fine if it is your own name; it is checked when you create.' : undefined;
@@ -59,7 +59,7 @@ export const CreateSpaceDialog = ({ entity, entityTitle, open, onClose, onCreate
         )}
         {!done && sugg.value?.canCreate && (
           <>
-            <TextField autoFocus fullWidth variant="outlined" margin="dense" label="Space name (a flower)" value={name}
+            <TextField fullWidth variant="outlined" margin="dense" label="Space name (a flower)" value={name}
               onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
               error={!!formatProblem} helperText={formatProblem ?? takenHint ?? (name ? `Shown as “DevOps Space – ${name.split('-').map(w => w[0]?.toUpperCase() + w.slice(1)).join(' ')}”` : 'Pick a suggestion or type your own')} />
             <Box display="flex" flexWrap="wrap" mt={1} style={{ gap: 6 }}>

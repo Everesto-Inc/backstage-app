@@ -59,11 +59,9 @@ export function explainStatus(r: Raw): Step[] {
   const app = `${r.env}-${r.repo}`;
   const steps: Step[] = [];
 
-  steps.push(r.gitConfigured
-    ? { id: 'git', title: 'Deployment in git', state: 'ok', detail: `${r.repo}-gitops/apps/${r.env}` }
-    : r.env === 'prod'
-      ? { id: 'git', title: 'Deployment in git', state: 'off', detail: 'No prod yet.', fix: { text: 'Promote to prod creates it (managers).', action: 'promote' } }
-      : { id: 'git', title: 'Deployment in git', state: 'fail', detail: `${r.repo}-gitops has no apps/dev.`, fix: { text: 'Delete the deployment and create it again.', action: 'edit-deployment' } });
+  if (r.gitConfigured) steps.push({ id: 'git', title: 'Deployment in git', state: 'ok', detail: `${r.repo}-gitops/apps/${r.env}` });
+  else if (r.env === 'prod') steps.push({ id: 'git', title: 'Deployment in git', state: 'off', detail: 'No prod yet.', fix: { text: 'Promote to prod creates it (managers).', action: 'promote' } });
+  else steps.push({ id: 'git', title: 'Deployment in git', state: 'fail', detail: `${r.repo}-gitops has no apps/dev.`, fix: { text: 'Delete the deployment and create it again.', action: 'edit-deployment' } });
 
   if (!r.clusterReadable) {
     steps.push({ id: 'cluster', title: 'Cluster status', state: 'unknown', detail: 'Backstage cannot read the cluster here (local dev) — available in prod.' });

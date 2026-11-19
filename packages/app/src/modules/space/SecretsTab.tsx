@@ -130,7 +130,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
           <Box mt={1}><Button size="small" variant="outlined" disabled={busy} onClick={newLogin}>Renew cluster access</Button></Box>
           {esoCmd && (
             <>
-              <CmdBox title={`✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status.`} cmd={esoCmd} />
+              <CmdBox title="✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status." cmd={esoCmd} />
             </>
           )}
         </Box>

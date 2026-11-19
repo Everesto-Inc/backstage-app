@@ -25,11 +25,8 @@ export const ToolLogo = ({ tool, size = 36 }: { tool: Tool; size?: number }) => 
   const theme = useTheme();
   const dark = theme.palette.type === 'dark';
   const logo = tool.logo ? LOGOS[tool.logo] : undefined;
-  const ink = logo
-    ? dark && luminance(logo.hex) < 0.2
-      ? theme.palette.text.primary
-      : logo.hex
-    : theme.palette.text.secondary;
+  let ink = theme.palette.text.secondary;
+  if (logo) ink = dark && luminance(logo.hex) < 0.2 ? theme.palette.text.primary : logo.hex;
   const tile = {
     width: size,
     height: size,

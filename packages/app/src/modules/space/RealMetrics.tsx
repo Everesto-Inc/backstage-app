@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { choose } from './choose';
 import { StatusLine, summarize, useStatus } from './StatusChain';
 import { Entity } from '@backstage/catalog-model';
 import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
@@ -57,7 +58,7 @@ export const RunBars = ({ runs }: { runs: Run[] }) => {
   return (
     <div className={c.bars} aria-label="last runs">
       {list.map(r => {
-        const color = r.conclusion === 'success' ? STATUS.good : r.conclusion === 'failure' ? STATUS.critical : '#9e9e9e';
+        const color = ({ success: STATUS.good, failure: STATUS.critical } as Record<string, string>)[r.conclusion ?? ''] ?? '#9e9e9e';
         return (
           <Tooltip key={r.id} title={`#${r.number} · ${r.conclusion ?? r.status} · ${fmtDuration(r.durationSec)} · ${r.event} · ${ago(r.createdAt)}`}>
             <Link href={r.url} target="_blank" rel="noopener">
@@ -98,7 +99,11 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
     <div className={c.metrics}>
       <Metric label={last ? <>Last build · <Link href={last.url} target="_blank" rel="noopener">#{last.number}</Link> · {ago(last.createdAt)} · {fmtDuration(last.durationSec)}</> : 'Last build'}>
         <Box width="100%">
-          {!last ? <Muted>no runs yet</Muted> : last.conclusion === 'success' ? <Good>Success</Good> : last.status !== 'completed' ? <Muted>running…</Muted> : <Bad>{`Failed${d.failedStep ? ` · ${d.failedStep}` : ''}`}</Bad>}
+          {choose([
+            [!last, () => <Muted>no runs yet</Muted>],
+            [last?.conclusion === 'success', () => <Good>Success</Good>],
+            [last?.status !== 'completed', () => <Muted>running…</Muted>],
+          ], () => <Bad>{`Failed${d.failedStep ? ` · ${d.failedStep}` : ''}`}</Bad>)}
           {d.runs && d.runs.length > 0 && <RunBars runs={d.runs} />}
           <Box mt={0.5}><RunBuild repo={insightsTarget(entity).repo} project={String(entity.spec?.system ?? '')} /></Box>
         </Box>
@@ -107,23 +112,25 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
         <Box width="100%"><Sparkline height={26} format={v => `${v} commits`} data={commits.map(x => ({ t: x.day.slice(5), v: x.count }))} /></Box>
       </Metric>
       <Metric label="Test coverage · new code">
-        {!s?.exists ? <Muted>SonarQube not added</Muted>
-          : s.error ? <Bad>Unavailable</Bad>
-          : !s.analysed ? <Muted>waiting for first analysis</Muted>
-          : (
+        {choose([
+          [!s?.exists, () => <Muted>SonarQube not added</Muted>],
+          [s?.error, () => <Bad>Unavailable</Bad>],
+          [!s?.analysed, () => <Muted>waiting for first analysis</Muted>],
+        ], () => (
             <Box width="100%">
               <Box display="flex" alignItems="baseline" style={{ gap: 8 }}>
-                <span style={{ fontSize: 22, fontWeight: 700 }}>{s.coverage ?? 0}%</span>
-                {s.newCoverage !== undefined && <Muted>new code {s.newCoverage}%</Muted>}
+                <span style={{ fontSize: 22, fontWeight: 700 }}>{s?.coverage ?? 0}%</span>
+                {s?.newCoverage !== undefined && <Muted>new code {s.newCoverage}%</Muted>}
               </Box>
-              <Meter value={s.coverage ?? 0} target={70} />
+              <Meter value={s?.coverage ?? 0} target={70} />
             </Box>
-          )}
+          ))}
       </Metric>
       <Metric label={<>Quality gate {s?.url && <Link href={s.url} target="_blank" rel="noopener">· SonarQube</Link>}</>}>
-        {!s?.exists || !s.analysed ? <Muted>—</Muted>
-          : s.gate === 'OK' ? <Good>{`Passed · ${s.bugs ?? 0} bugs · ${s.codeSmells ?? 0} smells`}</Good>
-          : <Bad>{`Failed · ${s.newIssues ?? 0} new issues`}</Bad>}
+        {choose([
+          [!s?.exists || !s.analysed, () => <Muted>—</Muted>],
+          [s?.gate === 'OK', () => <Good>{`Passed · ${s?.bugs ?? 0} bugs · ${s?.codeSmells ?? 0} smells`}</Good>],
+        ], () => <Bad>{`Failed · ${s?.newIssues ?? 0} new issues`}</Bad>)}
       </Metric>
       <Metric label="Security scans · last main run">
         <Box display="flex" flexDirection="column" style={{ gap: 2, fontSize: 14 }}>
@@ -155,7 +162,9 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
     if (a === undefined || a === null) return null; // no cluster access (local) → no badge
     if (!a.exists) return <Box mt={0.5}><Muted>ArgoCD app {e}-{repo} not created yet</Muted></Box>;
     const good = a.sync === 'Synced' && a.health === 'Healthy';
-    const color = good ? STATUS.good : a.health === 'Degraded' || a.lastSyncPhase === 'Failed' || a.lastSyncPhase === 'Error' ? STATUS.critical : STATUS.warning;
+    const bad = a.health === 'Degraded' || a.lastSyncPhase === 'Failed' || a.lastSyncPhase === 'Error';
+    let color = bad ? STATUS.critical : STATUS.warning;
+    if (good) color = STATUS.good;
     return (
       <Tooltip title={a.lastSyncMessage ?? ''}>
         <Box mt={0.5} style={{ fontSize: 13, fontWeight: 600, color }}>
@@ -253,7 +262,7 @@ export const RealCiTab = ({ entity }: { entity: Entity }) => {
       <Grid item xs={12} md={4}><StatTile label={`Success rate · last ${runs.length} runs`} value={runs.length ? `${Math.round((ok / runs.length) * 100)} %` : '—'} /></Grid>
       <Grid item xs={12} md={4}><StatTile label="Median duration" value={fmtDuration(median)} /></Grid>
       <Grid item xs={12} md={4}>
-        <StatTile label="Last main run" value={!last ? '—' : last.conclusion === 'success' ? <Good>Success</Good> : <Bad>Failed</Bad>} delta={last ? `#${last.number} · ${ago(last.createdAt)}${d.failedStep ? ` · failed at: ${d.failedStep}` : ''}` : undefined} />
+        <StatTile label="Last main run" value={choose([[!last, () => '—'], [last?.conclusion === 'success', () => <Good>Success</Good>]], () => <Bad>Failed</Bad>)} delta={last ? `#${last.number} · ${ago(last.createdAt)}${d.failedStep ? ` · failed at: ${d.failedStep}` : ''}` : undefined} />
       </Grid>
       <Grid item xs={12}>
         <Box p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
@@ -262,7 +271,7 @@ export const RealCiTab = ({ entity }: { entity: Entity }) => {
           <Box mt={2} style={{ fontSize: 13 }}>
             {(d.runs ?? []).slice(0, 10).map(r => (
               <Box key={r.id} display="flex" style={{ gap: 12, padding: '4px 0', borderTop: '1px solid rgba(128,128,128,0.15)' }}>
-                <span style={{ width: 70 }}>{r.conclusion === 'success' ? <Good>ok</Good> : r.conclusion === 'failure' ? <Bad>fail</Bad> : <Muted>{r.status}</Muted>}</span>
+                <span style={{ width: 70 }}>{choose([[r.conclusion === 'success', () => <Good>ok</Good>], [r.conclusion === 'failure', () => <Bad>fail</Bad>]], () => <Muted>{r.status}</Muted>)}</span>
                 <Link href={r.url} target="_blank" rel="noopener" style={{ width: 50 }}>#{r.number}</Link>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
                 <Muted>{r.event} · {r.actor}</Muted>
@@ -301,7 +310,7 @@ export const RealSecurityTab = ({ entity }: { entity: Entity }) => {
             <Box key={tool + what} display="flex" alignItems="center" style={{ gap: 12, padding: '6px 0', borderTop: '1px solid rgba(128,128,128,0.15)' }}>
               <b style={{ width: 90 }}>{tool}</b>
               <span style={{ flex: 1 }}>{what}</span>
-              {r === 'n/a' ? <Muted>not added</Muted> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{scan(r, r === 'success' ? 'passed' : r === 'failure' ? 'failed — see the run log' : 'not reached')}</span>}
+              {r === 'n/a' ? <Muted>not added</Muted> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{scan(r, ({ success: 'passed', failure: 'failed — see the run log' } as Record<string, string>)[String(r)] ?? 'not reached')}</span>}
             </Box>
           ))}
           {d?.lastMainRun && <Box mt={1}><Link href={d.lastMainRun.url} target="_blank" rel="noopener">Open run #{d.lastMainRun.number} on GitHub</Link></Box>}

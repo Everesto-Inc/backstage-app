@@ -31,6 +31,9 @@ export const SecurityTab = () => {
   ].filter(Boolean) as { tool: string; sev: string; what: string; where: string; fix: string }[];
 
   if (!demo) return <RealSecurityTab entity={entity} />;
+  let secretsValue = <span style={{ color: STATUS.good, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle /> None</span>;
+  if (!on('secrets-scan')) secretsValue = <span style={{ fontSize: 18, opacity: 0.6 }}>not added</span>;
+  else if (m.secretsFound) secretsValue = <span style={{ color: STATUS.critical }}>{m.secretsFound} found</span>;
   return (
     <Box>
       <Grid container spacing={2}>
@@ -47,11 +50,7 @@ export const SecurityTab = () => {
         <Grid item xs={12} md={4}>
           <StatTile
             label="Secrets in code (Gitleaks)"
-            value={
-              !on('secrets-scan') ? <span style={{ fontSize: 18, opacity: 0.6 }}>not added</span>
-              : m.secretsFound ? <span style={{ color: STATUS.critical }}>{m.secretsFound} found</span>
-              : <span style={{ color: STATUS.good, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle /> None</span>
-            }
+            value={secretsValue}
             delta="a found secret always blocks the build"
           />
         </Grid>
@@ -99,7 +98,7 @@ export const SecurityTab = () => {
               { title: 'How to fix', field: 'fix' },
               { title: 'Scanner', field: 'tool' },
             ]}
-            data={findings.sort((a, b) => (a.sev === b.sev ? 0 : a.sev === 'high' ? -1 : 1))}
+            data={findings.sort((a, b) => Number(b.sev === 'high') - Number(a.sev === 'high'))}
           />
         </Grid>}
       </Grid>

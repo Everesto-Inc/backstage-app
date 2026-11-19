@@ -19,7 +19,10 @@ const CI = `jobs:
         id: image
         uses: Everesto-Inc/loop/stages/build-image@${SHA} # v1.0.0
 `;
-const CATALOG = `metadata:
+const CATALOG = `apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: app
   annotations:
     everesto.live/image: ghcr.io/everesto-inc/app
     sonarqube.org/project-key: app

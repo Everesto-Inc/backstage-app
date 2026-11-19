@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { choose } from './choose';
 import { Entity } from '@backstage/catalog-model';
 import { useEntity, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { Progress, ResponseErrorPanel } from '@backstage/core-components';
@@ -153,11 +154,10 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
               </Box>
             </Metric>
             <Metric label="Test coverage · new code">
-              {!sonarState || sonarState.kind === 'missing' ? (
-                <Typography variant="body2" color="textSecondary">SonarQube not added</Typography>
-              ) : sonarState.kind === 'error' ? (
-                <Bad>Unavailable</Bad>
-              ) : (
+              {choose([
+                [!sonarState || sonarState.kind === 'missing', () => <Typography variant="body2" color="textSecondary">SonarQube not added</Typography>],
+                [sonarState?.kind === 'error', () => <Bad>Unavailable</Bad>],
+              ], () => (
                 <Box width="100%">
                   <Box display="flex" alignItems="baseline" style={{ gap: 8 }}>
                     <span style={{ fontSize: 22, fontWeight: 700 }}>{m.coverage}%</span>
@@ -165,19 +165,18 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
                   </Box>
                   <Meter value={m.coverage} target={70} />
                 </Box>
-              )}
+              ))}
             </Metric>
             <Metric label="New issues · this branch">
-              {!sonarState || sonarState.kind !== 'connected' ? (
-                <Typography variant="body2" color="textSecondary">—</Typography>
-              ) : m.newIssues === 0 ? (
-                <Good>None</Good>
-              ) : (
+              {choose([
+                [!sonarState || sonarState.kind !== 'connected', () => <Typography variant="body2" color="textSecondary">—</Typography>],
+                [m.newIssues === 0, () => <Good>None</Good>],
+              ], () => (
                 <Box>
                   <span style={{ fontWeight: 650 }}>{m.newIssues} new</span>
                   <Typography variant="caption" color="textSecondary" component="div">fix first: {m.topIssue}</Typography>
                 </Box>
-              )}
+              ))}
             </Metric>
             <Metric label="Vulnerabilities">
               {scanners.length === 0 ? (
@@ -187,24 +186,21 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
                   {scanners.map(({ id, tool, state }) => (
                     <Box key={id} display="flex" alignItems="center" style={{ gap: 6, fontSize: 14 }}>
                       <span style={{ minWidth: 70, fontWeight: 500, opacity: 0.7 }}>{tool.name}</span>
-                      {state.kind === 'error' ? <Bad>Unavailable</Bad>
-                        : counts[id].critical + counts[id].high === 0 ? <Good>None</Good>
-                        : <Bad>{`${counts[id].critical} crit · ${counts[id].high} high`}</Bad>}
+                      {choose([
+                        [state.kind === 'error', () => <Bad>Unavailable</Bad>],
+                        [counts[id].critical + counts[id].high === 0, () => <Good>None</Good>],
+                      ], () => <Bad>{`${counts[id].critical} crit · ${counts[id].high} high`}</Bad>)}
                     </Box>
                   ))}
                 </Box>
               )}
             </Metric>
             <Metric label="Secrets in code">
-              {leaks.kind === 'missing' ? (
-                <Typography variant="body2" color="textSecondary">Gitleaks not added</Typography>
-              ) : leaks.kind === 'error' ? (
-                <Bad>Unavailable</Bad>
-              ) : m.secretsFound ? (
-                <Bad>{`${m.secretsFound} found — build blocked`}</Bad>
-              ) : (
-                <Good>None</Good>
-              )}
+              {choose([
+                [leaks.kind === 'missing', () => <Typography variant="body2" color="textSecondary">Gitleaks not added</Typography>],
+                [leaks.kind === 'error', () => <Bad>Unavailable</Bad>],
+                [m.secretsFound, () => <Bad>{`${m.secretsFound} found — build blocked`}</Bad>],
+              ], () => <Good>None</Good>)}
             </Metric>
           </div>
         );

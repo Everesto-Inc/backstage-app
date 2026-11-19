@@ -129,9 +129,5 @@ export const toolState = (entity: Entity, tool: Tool): ToolState => {
   return reason ? { kind: 'error', value, reason } : { kind: 'connected', value };
 };
 
-/**
- * Who may remove a tool: owners of the application's space (<system>-owners)
- * and platform admins. Mirrors the space roles in CLAUDE.md (owner ⊃ maintainer ⊃ developer).
- */
-export const CI_TOOLS = TOOLS.filter(t => t.stage === 'ci');
-export const CD_TOOLS = TOOLS.filter(t => t.stage === 'cd');
+export const CI_TOOLS = TOOLS.filter(x => x.stage === 'ci');
+export const CD_TOOLS = TOOLS.filter(x => x.stage === 'cd');

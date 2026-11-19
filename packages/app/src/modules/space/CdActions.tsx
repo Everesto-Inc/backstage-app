@@ -224,7 +224,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
               </Box>
               {esoCmd && (
                 <>
-                  <CmdBox title={`✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status.`} cmd={esoCmd} />
+                  <CmdBox title="✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status." cmd={esoCmd} />
                 </>
               )}
             </Box>

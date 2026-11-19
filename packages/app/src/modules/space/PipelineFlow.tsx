@@ -56,6 +56,7 @@ export const toolUrl = (entity: Entity, toolId: string): string | undefined => {
 export const PipelineFlow = ({ entity, tools, size = 34, labels = false }: { entity: Entity; tools: Tool[]; size?: number; labels?: boolean }) => {
   const classes = useStyles();
   const theme = useTheme();
+  const linkGreen = theme.palette.type === 'dark' ? 'rgba(12,163,12,0.6)' : 'rgba(12,163,12,0.45)';
   const used = tools
     .map(t => ({ tool: t, state: toolState(entity, t) }))
     .filter(x => x.state.kind !== 'missing');
@@ -73,7 +74,7 @@ export const PipelineFlow = ({ entity, tools, size = 34, labels = false }: { ent
             {i > 0 && (
               <div
                 className={classes.link}
-                style={{ marginTop: size / 2 - 1, background: prevErr ? STATUS.critical : theme.palette.type === 'dark' ? 'rgba(12,163,12,0.6)' : 'rgba(12,163,12,0.45)' }}
+                style={{ marginTop: size / 2 - 1, background: prevErr ? STATUS.critical : linkGreen }}
               />
             )}
             <Tooltip

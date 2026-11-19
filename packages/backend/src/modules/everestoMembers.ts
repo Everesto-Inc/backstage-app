@@ -11,6 +11,7 @@
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
 import { OWNER, commit, readFile } from './everestoManage';
+import { findDoc, groupMembers, setGroupMembers } from './everestoYaml';
 
 export const SPACE_ROLES = ['managers', 'maintainers', 'developers', 'viewers'] as const;
 export type SpaceRole = (typeof SPACE_ROLES)[number];
@@ -24,31 +25,8 @@ export function canManageRole(refs: string[], space: string, role: SpaceRole, en
   return manager && (role === 'developers' || role === 'viewers'); // Manager / Maintainer ticks: owner only
 }
 
-/** Pure: current members of group <group>. */
-export function groupMembers(yamlText: string, group: string): string[] {
-  let cur: string[] = [];
-  setGroupMembers(yamlText, group, m => {
-    cur = m;
-    return m;
-  });
-  return cur;
-}
-
-/** Pure: set the members list of group <group> in a multi-document YAML file (keeps everything else as-is). */
-export function setGroupMembers(yamlText: string, group: string, change: (m: string[]) => string[]) {
-  const docs = yamlText.split(/\n---\n/);
-  let found = false;
-  const out = docs.map(doc => {
-    if (!new RegExp(`^ {2}name: ${group}\\s*$`, 'm').test(doc) || !/^kind: Group$/m.test(doc)) return doc;
-    found = true;
-    const m = doc.match(/^ {2}members: \[([^\]]*)\](.*)$/m);
-    if (!m) return doc.replace(/^spec:\n/m, `spec:\n  members: [${change([]).join(', ')}]\n`);
-    const cur = m[1].split(',').map(x => x.trim()).filter(Boolean);
-    return doc.replace(m[0], `  members: [${change(cur).join(', ')}]${m[2]}`);
-  });
-  if (!found) throw err(404, `group ${group} not found in the catalog`);
-  return out.join('\n---\n');
-}
+// group members are read/edited with a real YAML parser (comments + other documents untouched)
+export { groupMembers, setGroupMembers } from './everestoYaml';
 
 const userDoc = (name: string, login: string, email?: string, displayName?: string) => `---
 apiVersion: backstage.io/v1alpha1
@@ -72,7 +50,7 @@ export async function addMember(config: Config, space: string, role: SpaceRole, 
   const org = (await readFile(token, CATALOG, 'platform/org.yaml')) ?? '';
   const files: { path: string; content: string }[] = [];
   const done: string[] = [];
-  if (!new RegExp(`^ {2}name: ${name}\\s`, 'm').test(org)) {
+  if (!findDoc(org, 'User', name)) {
     files.push({ path: 'platform/org.yaml', content: `${org.trimEnd()}\n${userDoc(name, u.json.login, email, displayName)}` });
     done.push(`user ${name} created in the catalog`);
   }

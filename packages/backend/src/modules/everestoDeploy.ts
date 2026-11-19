@@ -12,278 +12,28 @@
  *                       argocd/argocd-prod.yaml.
  *   deleteDeployment  → deletes <repo>-gitops, catalog Resource, Infisical project <repo>-gitops + identity eso-<repo>.
  *                       Kept: ghcr.io images, cluster secret infisical-<repo>-auth.
- * Every ArgoCD sync is MANUAL. Backstage has NO cluster access: it returns kubectl commands.
+ * Every ArgoCD sync is MANUAL. Backstage writes git only; ArgoCD creates the cluster objects (app-of-apps).
+ *
+ * Split: everestoManifests (pure YAML) · everestoInfisical · everestoRunbook · everestoTenants · this file = the flows.
  */
+import { DeploymentInput, NS_KEY, Env, NAME, appProject, application, deployment, devHost, err, externalSecret, header, ingress, kustomization, namespace, ns, roleBinding, secretStore, service } from './everestoManifests';
+import { infisical, infisicalDelete, infisicalSetup } from './everestoInfisical';
+import { applySecretsCmd, mkdocs, runbook } from './everestoRunbook';
+import { PLATFORM_FILES, PLATFORM_REPO, nsKeyFree, nsKeyOf, platformStore, rotateEsoLogin, tenantYaml, writeTenant } from './everestoTenants';
 import { Config } from '@backstage/config';
+import { component, findDoc, infisicalStore, kustomizeTag, setKustomizeTag } from './everestoYaml';
 import { gh, githubToken } from './everestoActions';
 import { ROLE } from './everestoRoles';
 import { argoApp } from './everestoK8s';
 import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
 
-type Env = 'dev' | 'prod';
-/** Namespace of an APP per environment: env-first + a short key chosen at Create deployment (dev-python, prod-python). */
-export const ns = (nsKey: string, env: Env) => `${env}-${nsKey}`;
-export const NS_KEY = /^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/;
-const RESERVED_NS = ['backstage', 'argocd', 'system', 'platform', 'default', 'livecode', 'folio', 'maas', 'monitoring', 'awx'];
-const err = (status: number, message: string) => Object.assign(new Error(message), { status });
-const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-export type DeploymentInput = {
-  secrets: { name: string; value?: string }[];
-  config: { name: string; value: string }[];
-  port: number;
-  memoryMi: number;
-  replicas: number;
-  healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
-  publicUrl?: boolean; // dev: ingress <repo>.dev.everesto.live (via alb wildcard → in-cluster Traefik)
-  nsKey?: string; // short namespace key → dev-<nsKey> / prod-<nsKey> (default: first word of the app name)
-};
-
-// ---------- manifests ----------
-
-const kustomization = (image: string, tag: string, nsKey: string, env: Env, ingress = false) => `apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: ${ns(nsKey, env)}
-resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml${ingress ? ', ingress.yaml' : ''}]
-images:
-  - name: ${image}
-    newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
-`;
-
-const probes = (d: DeploymentInput) => (d.healthPath
-  ? `          readinessProbe: { httpGet: { path: ${d.healthPath}, port: ${d.port} }, periodSeconds: 10 }
-          livenessProbe: { httpGet: { path: ${d.healthPath}, port: ${d.port} }, initialDelaySeconds: 20, periodSeconds: 20, failureThreshold: 3 }`
-  : `          readinessProbe: { tcpSocket: { port: ${d.port} }, periodSeconds: 10 }`);
-
-const deployment = (repo: string, image: string, project: string, env: Env, d: DeploymentInput) => `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${repo}
-  labels: { app: ${repo}, everesto.live/project: ${project}, everesto.live/env: ${env} }
-spec:
-  replicas: ${d.replicas}
-  selector: { matchLabels: { app: ${repo} } }
-  template:
-    metadata:
-      labels: { app: ${repo}, everesto.live/project: ${project}, everesto.live/env: ${env} }
-    spec:
-      nodeSelector: { everesto.live/pool: tenants }
-      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
-      containers:
-        - name: app
-          image: ${image}
-          ports: [{ containerPort: ${d.port} }]${d.config.length ? `
-          env:   # config (not secret)
-${d.config.map(c => `            - { name: ${c.name}, value: ${JSON.stringify(c.value)} }`).join('\n')}` : ''}
-          envFrom:
-            - secretRef: { name: ${repo} }   # secrets: Infisical ${repo}-gitops / ${env} (via ESO)
-          resources:
-            requests: { cpu: 25m, memory: ${Math.max(32, Math.round(d.memoryMi / 2))}Mi }
-            limits: { memory: ${d.memoryMi}Mi }
-${probes(d)}
-          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
-`;
-
-// own manifest (not only CreateNamespace=true): ArgoCD skips CreateNamespace on partial syncs
-const namespace = (project: string, nsKey: string, env: Env) => `apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${ns(nsKey, env)}
-  labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
-  annotations:
-    # never deleted by ArgoCD (safety): remove it by hand after Delete deployment if it is empty
-    argocd.argoproj.io/sync-options: Delete=false
-`;
-
-// Backstage may READ this app's namespace (Kubernetes tab) — ClusterRole backstage-read bound HERE only
-const roleBinding = (repo: string) => `apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: backstage-read-${repo}
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: backstage-read }
-subjects:
-  - { kind: ServiceAccount, name: backstage, namespace: prod-backstage }
-`;
-
-/** dev URL: https://<repo>.dev.everesto.live (app names are unique in the org → one wildcard cert covers all). */
-export const devHost = (repo: string) => `${repo}.dev.everesto.live`;
-const ingress = (repo: string) => `# https://${devHost(repo)} — alb (TLS *.dev.everesto.live) → in-cluster Traefik → this Ingress → Service ${repo}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ${repo}
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: ${devHost(repo)}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend: { service: { name: ${repo}, port: { number: 80 } } }
-`;
-
-const service = (repo: string, port: number) => `apiVersion: v1
-kind: Service
-metadata:
-  name: ${repo}
-spec:
-  selector: { app: ${repo} }
-  ports: [{ port: 80, targetPort: ${port} }]
-`;
-
-const externalSecret = (repo: string, _project: string, env: Env) => `# All secrets of Infisical project "${repo}-gitops", env ${env} → Secret "${repo}"
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: ${repo}
-spec:
-  refreshInterval: 5m
-  secretStoreRef: { kind: ClusterSecretStore, name: infisical-${repo}-${env} }
-  target: { name: ${repo} }
-  dataFrom:
-    - find: { name: { regexp: ".*" } }
-`;
-
-const appProject = (project: string, namespaces: string[]) => `apiVersion: argoproj.io/v1alpha1
-kind: AppProject
-metadata:
-  name: ${project}
-  namespace: argocd
-spec:
-  description: DevOps space ${project}
-  sourceRepos:
-    - https://github.com/${OWNER}/*-gitops.git
-  destinations:   # exactly the namespaces of this space's apps (dev-<key> / prod-<key>)
-${[...new Set(namespaces)].sort().map(n => `    - { server: https://kubernetes.default.svc, namespace: ${n} }`).join('\n')}
-  clusterResourceWhitelist:
-    - { group: '', kind: Namespace }
-  namespaceResourceWhitelist:
-    - { group: '*', kind: '*' }
-`;
-
-const application = (repo: string, project: string, env: Env, nsKey: string) => `apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: ${env}-${repo}
-  namespace: argocd
-  labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
-  finalizers: [resources-finalizer.argocd.argoproj.io]   # deleting the app removes its pods too
-spec:
-  project: ${project}
-  source:
-    repoURL: https://github.com/${OWNER}/${repo}-gitops.git
-    targetRevision: main
-    path: apps/${env}
-  destination: { server: https://kubernetes.default.svc, namespace: ${ns(nsKey, env)} }
-  syncPolicy:
-    # MANUAL sync: after "Deploy" / "Promote" click Sync in ArgoCD
-    syncOptions: [CreateNamespace=true]
-`;
-
-const secretStore = (repo: string, _project: string, env: Env, projectSlug: string, url: string, nsKey: string) => `apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
-metadata:
-  name: infisical-${repo}-${env}
-spec:
-  conditions:
-    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ${ns(nsKey, env)} } }
-  provider:
-    infisical:
-      hostAPI: ${url}
-      auth:
-        universalAuthCredentials:
-          clientId: { name: infisical-${repo}-auth, namespace: external-secrets, key: clientId }
-          clientSecret: { name: infisical-${repo}-auth, namespace: external-secrets, key: clientSecret }
-      secretsScope: { projectSlug: ${projectSlug}, environmentSlug: ${env}, secretsPath: / }
-`;
-
-const header = (file: string, gitops: string, extra = '') =>
-  `# Apply on the control plane (Backstage has no cluster access):\n#   sudo kubectl apply -f https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd/${file}\n${extra}`;
-
-// ---------- Infisical ----------
-
-async function infisical(config: Config) {
-  const url = config.getOptionalString('infisical.url');
-  const clientId = config.getOptionalString('infisical.clientId');
-  const clientSecret = config.getOptionalString('infisical.clientSecret');
-  let orgId = config.getOptionalString('infisical.organizationId')?.trim(); // tolerate a pasted trailing '/'
-  while (orgId?.endsWith('/')) orgId = orgId.slice(0, -1);
-  if (!url || !clientId || !clientSecret || !orgId) {
-    throw err(409, 'Backstage is not connected to Infisical yet (identity backstage-platform) — nothing was created. Secrets are required for a deployment.');
-  }
-  const login = await (await fetch(`${url}/api/v1/auth/universal-auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId, clientSecret }),
-  })).json() as any;
-  if (!login.accessToken) throw err(502, 'Infisical: login of backstage-platform failed — nothing was created');
-  const api = async (method: string, path: string, body?: unknown) => {
-    const res = await fetch(`${url}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${login.accessToken}`, ...(body ? { 'content-type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json: any;
-    try { json = text ? JSON.parse(text) : undefined; } catch { json = text; }
-    return { ok: res.ok, status: res.status, json };
-  };
-  return { url, orgId, api };
-}
-
-/** Infisical project <repo>-gitops (one per application) + its secrets in <env>. Returns slug and (only when new) the ESO identity login. */
-async function infisicalSetup(config: Config, repo: string, env: Env, secrets: { name: string; value?: string }[]) {
-  const { url, orgId, api } = await infisical(config);
-  const project = `${repo}-gitops`;
-  const list = await api('GET', '/api/v1/workspace');
-  let ws = (list.json?.workspaces ?? []).find((w: any) => w.name === project);
-  if (!ws) {
-    const created = await api('POST', '/api/v2/workspace', { projectName: project, organizationId: orgId });
-    if (!created.ok) throw err(502, `Infisical: cannot create project ${project} (${created.status})`);
-    ws = created.json.project ?? created.json.workspace;
-  }
-  for (const s of secrets) {
-    const r = await api('POST', `/api/v3/secrets/raw/${encodeURIComponent(s.name)}`, {
-      workspaceId: ws.id, environment: env, secretPath: '/', secretValue: s.value || 'CHANGE_ME', type: 'shared',
-    });
-    if (!r.ok && !JSON.stringify(r.json ?? '').toLowerCase().includes('already exist')) throw err(502, `Infisical: cannot create secret ${s.name} (${r.status} ${JSON.stringify(r.json?.message ?? '')})`);
-  }
-
-  // ESO identity eso-<repo>: viewer on this Infisical project only
-  const name = `eso-${repo}`;
-  const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
-  const exists = (ids.json?.identityMemberships ?? []).some((m: any) => m.identity?.name === name);
-  const base = { url, projectSlug: ws.slug as string, projectUrl: `${url}/project/${ws.id}/secrets/overview`, identity: name, project };
-  if (exists) return base;
-  const idRes = await api('POST', '/api/v1/identities', { name, organizationId: orgId, role: 'no-access' });
-  if (!idRes.ok) throw err(502, `Infisical: cannot create identity ${name} (${idRes.status})`);
-  const identityId = idRes.json.identity.id;
-  const ua = await api('POST', `/api/v1/auth/universal-auth/identities/${identityId}`, {});
-  const cs = await api('POST', `/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`, { description: 'ESO (created by Backstage)' });
-  const mem = await api('POST', `/api/v2/workspace/${ws.id}/identity-memberships/${identityId}`, { role: 'viewer' });
-  if (!ua.ok || !cs.ok || !mem.ok) throw err(502, `Infisical: identity ${name} setup failed (${ua.status}/${cs.status}/${mem.status})`);
-  return { ...base, clientId: ua.json.identityUniversalAuth?.clientId as string, clientSecret: cs.json.clientSecret as string };
-}
-
-/** Delete Infisical project <repo>-gitops + identity eso-<repo> (part of deleting the deployment). */
-export async function infisicalDelete(config: Config, repo: string): Promise<{ done: string[]; warn: string[] }> {
-  const done: string[] = [];
-  const warn: string[] = [];
-  let conn;
-  try { conn = await infisical(config); } catch (e: any) { return { done, warn: [`Infisical not reachable — delete project ${repo}-gitops by hand (${e.message})`] }; }
-  const { orgId, api } = conn;
-  const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
-  if (ws) {
-    const d = await api('DELETE', `/api/v1/workspace/${ws.id}`);
-    if (d.ok) done.push(`Infisical project ${repo}-gitops (all its secrets)`); else warn.push(`could not delete Infisical project ${repo}-gitops (${d.status})`);
-  }
-  const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
-  const id = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === `eso-${repo}`)?.identity?.id;
-  if (id) {
-    const d = await api('DELETE', `/api/v1/identities/${id}`);
-    if (d.ok) done.push(`Infisical identity eso-${repo}`); else warn.push(`could not delete identity eso-${repo} (${d.status})`);
-  }
-  return { done, warn };
-}
+// public API of the deployment modules (callers import from here)
+export { NS_KEY, devHost, ns } from './everestoManifests';
+export type { DeploymentInput } from './everestoManifests';
+export { applySecretsCmd, setupCommands } from './everestoRunbook';
+export type { SetupStep } from './everestoRunbook';
+export { nsKeyOf, removeTenant } from './everestoTenants';
+export { infisicalDelete } from './everestoInfisical';
 
 // ---------- helpers ----------
 
@@ -293,7 +43,7 @@ async function requireDeployment(token: string, repo: string) {
   if (!dev) throw err(404, `${repo} has no deployment (${gitops})`);
   return { gitops, dev, prod: await readFile(token, gitops, 'apps/prod/kustomization.yaml') };
 }
-const tagOf = (k?: string) => k?.match(/newTag:\s*(\S+)/)?.[1];
+const tagOf = kustomizeTag;
 
 /** Last successful main builds = images that exist in ghcr.io (CI keeps the last 5). */
 export async function builds(config: Config, repo: string) {
@@ -305,312 +55,13 @@ export async function builds(config: Config, repo: string) {
     .map(r => ({ tag: `sha-${String(r.head_sha).slice(0, 7)}`, at: r.created_at as string, title: r.display_title as string, url: r.html_url as string }));
 }
 
-// ---------- runbook (TechDocs page of <repo>-gitops + "Setup commands" in Backstage) — NO secret values ----------
-
-export type SetupStep = {
-  n: number;
-  env: 'once' | 'dev' | 'prod';
-  title: string;
-  cmd: string;
-  creates: string[]; // "Kind name (where)"
-  explain: string;
-};
-
-/** Every control-plane command of a deployment, in order, explained. Source for: Secrets tab, Edit deployment, Tech Docs. */
-export const setupCommands = (repo: string, project: string, hasProd: boolean, nsKey = project): SetupStep[] => {
-  const gitops = `${repo}-gitops`;
-  const dev = ns(nsKey, 'dev');
-  const prod = ns(nsKey, 'prod');
-  const sync = (e: Env) => `sudo kubectl -n argocd patch application ${e}-${repo} --type merge -p '{"operation":{"sync":{}}}'`;
-  const check = (e: Env) => `sudo kubectl -n argocd get application ${e}-${repo}\nsudo kubectl -n ${ns(nsKey, e)} get pods,externalsecret,secret`;
-  return [
-    {
-      n: 1, env: 'once', title: 'Tenant node label (once per cluster)',
-      cmd: 'sudo kubectl label node dev-k3s-argocd everesto.live/pool=tenants --overwrite',
-      creates: ['label everesto.live/pool=tenants (node dev-k3s-argocd)'],
-      explain: 'Every tenant Deployment has nodeSelector everesto.live/pool=tenants. Without this label the pods stay Pending. Already done if any other app runs.',
-    },
-    {
-      n: 2, env: 'once', title: `Infisical login for ESO (identity eso-${repo})`,
-      cmd: `# AUTOMATIC — Backstage stores the login in Infisical (platform-eso); ESO creates Secret infisical-${repo}-auth.\n# Rotate: Secrets tab → "New ESO login". Check:\nsudo kubectl -n external-secrets get externalsecret infisical-${repo}-auth`,
-      creates: [`Secret infisical-${repo}-auth (ns external-secrets)`],
-      explain: `The login ESO uses to READ the Infisical project ${gitops} (dev and prod). Real values are never stored: Backstage → ${gitops} → Secrets → "New ESO login" shows this command with them, once. Lives in external-secrets, which tenants cannot read.`,
-    },
-    {
-      n: 3, env: 'dev', title: 'Secret store for dev',
-      cmd: `# AUTOMATIC — committed to gitops-backstage/platform/tenants/${project}/${repo}.yaml, created by ArgoCD (root app platform-tenants).\nsudo kubectl get clustersecretstore infisical-${repo}-dev`,
-      creates: [`ClusterSecretStore infisical-${repo}-dev (cluster-wide)`],
-      explain: `Tells ESO where dev secrets come from: Infisical project ${gitops}, environment dev, path /, using the login of step 2. Its condition allows ONLY namespace ${dev} to use it.`,
-    },
-    {
-      n: 4, env: 'dev', title: `ArgoCD project ${project} + application dev-${repo}`,
-      cmd: `# AUTOMATIC — same tenant file; the app appears in ArgoCD ~3 min after Create deployment.\nsudo kubectl -n argocd get application dev-${repo}`,
-      creates: [`AppProject ${project} (ns argocd)`, `Application dev-${repo} (ns argocd)`],
-      explain: `AppProject ${project} = guard rails: only *-gitops repos, only namespaces ${dev} / ${prod}. Application dev-${repo} = an instruction to ArgoCD: "take folder apps/dev of ${gitops} and put it into ${dev}, sync manually". It creates no pods yet — it appears as a tile in ArgoCD.`,
-    },
-    {
-      n: 5, env: 'dev', title: `Sync dev-${repo} (or ArgoCD UI → Sync)`,
-      cmd: sync('dev'),
-      creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${dev}: Backstage may READ this namespace — CD tab)`],
-      explain: `ArgoCD applies everything in apps/dev: the namespace first, then Deployment (image + tag, port, /health probes, memory), Service (port 80 → container port) and ExternalSecret. ESO sees the ExternalSecret and creates Secret ${repo} from Infisical dev; the pod gets every key as an environment variable. Run again after every "Deploy to dev".`,
-    },
-    { n: 6, env: 'dev', title: 'Check dev', cmd: check('dev'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
-    {
-      n: 7, env: 'prod', title: `Prod secret store + application prod-${repo} — only after the first "Promote to prod" PR is merged${hasProd ? '' : ' (not done yet)'}`,
-      cmd: `# AUTOMATIC on the first Promote — the prod store + app join the tenant file.\nsudo kubectl -n argocd get application prod-${repo}`,
-      creates: [`ClusterSecretStore infisical-${repo}-prod (cluster-wide)`, `Application prod-${repo} (ns argocd)`],
-      explain: `Same as steps 3 + 4 for prod: the store reads Infisical environment prod and only namespace ${prod} may use it; the Application takes apps/prod into ${prod}. The file exists only after the first promote PR is merged (404 before). Set the real prod secrets in the Secrets tab before syncing.`,
-    },
-    {
-      n: 8, env: 'prod', title: `Sync prod-${repo} (or ArgoCD UI → Sync)`,
-      cmd: sync('prod'),
-      creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${prod}: Backstage may READ this namespace — CD tab)`],
-      explain: `Like step 5, for prod. Run again after every merged "Promote to prod" PR.`,
-    },
-    { n: 9, env: 'prod', title: 'Check prod', cmd: check('prod'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
-  ];
-};
-
-/** After a secret changed (only when the app already runs in that namespace). */
-export const applySecretsCmd = (repo: string, nsKey: string, env: Env) =>
-  `sudo kubectl -n ${ns(nsKey, env)} annotate externalsecret ${repo} force-sync=$(date +%s) --overwrite\n` +
-  `sudo kubectl -n ${ns(nsKey, env)} rollout restart deployment ${repo}`;
-
-
-const runbook = (repo: string, project: string, hasProd: boolean, nsKey = project) => {
-  const gitops = `${repo}-gitops`;
-  const dev = ns(nsKey, 'dev');
-  const prod = ns(nsKey, 'prod');
-  const steps = setupCommands(repo, project, hasProd, nsKey);
-  const section = (env: SetupStep['env']) => steps.filter(x => x.env === env).map(x => `### ${x.n}. ${x.title}
-
-\`\`\`bash
-${x.cmd}
-\`\`\`
-
-${x.explain}
-${x.creates.length ? `\n**Creates:**\n\n${x.creates.map(c => `- ${c}`).join('\n')}\n` : ''}`).join('\n');
-  return `# ${gitops}
-
-Deployment (CD) of [${repo}](https://github.com/${OWNER}/${repo}), DevOps space **${project}**, managed by Backstage.
-Backstage has **no cluster access**: it writes git and Infisical; an admin runs the commands below on the control plane
-(\`ssho control-plane\`). Every command is safe to run again.
-
-## What runs where
-
-\`\`\`mermaid
-flowchart TB
-  subgraph git[GitHub ${gitops}]
-    D[apps/dev]
-    P[apps/prod]
-    A[argocd/*.yaml]
-  end
-  subgraph inf[Infisical project ${gitops}]
-    ID[(env dev)]
-    IP[(env prod)]
-  end
-  subgraph argo[ns argocd]
-    AD[Application dev-${repo}]
-    AP[Application prod-${repo}]
-  end
-  subgraph es[ns external-secrets]
-    L[Secret infisical-${repo}-auth]
-  end
-  SD{{ClusterSecretStore ${repo}-dev}}
-  SP{{ClusterSecretStore ${repo}-prod}}
-  subgraph nd[ns ${dev}]
-    PD[pod ${repo}]
-  end
-  subgraph np[ns ${prod}]
-    PP[pod ${repo}]
-  end
-  A -. kubectl apply .-> AD & AP & SD & SP
-  D -->|Sync| AD --> nd
-  P -->|Sync| AP --> np
-  L --> SD & SP
-  ID --> SD -->|ESO: Secret ${repo}| nd
-  IP --> SP -->|ESO: Secret ${repo}| np
-\`\`\`
-
-| Object | Kind | Namespace | Created by |
-|---|---|---|---|
-| \`infisical-${repo}-auth\` | Secret (Infisical login) | external-secrets | you — step 2 |
-| \`infisical-${repo}-dev\` / \`-prod\` | ClusterSecretStore | — (cluster-wide) | you — steps 3 / 7 |
-| \`${project}\` | AppProject | argocd | you — step 4 |
-| \`dev-${repo}\` / \`prod-${repo}\` | Application | argocd | you — steps 4 / 7 |
-| \`${dev}\` / \`${prod}\` | Namespace | — | ArgoCD on Sync |
-| \`${repo}\` | Deployment, Service, ExternalSecret | ${dev} / ${prod} | ArgoCD on Sync |
-| \`${repo}\` | Secret (the app's secrets) | ${dev} / ${prod} | ESO, from Infisical |
-
-Why the files have no \`namespace:\` line: it is set once per folder in \`apps/<env>/kustomization.yaml\`
-(\`namespace: ${dev}\` / \`${prod}\`) and in each Application's \`destination\`.
-
-## Once (per cluster / per app)
-
-${section('once')}
-## Dev
-
-${section('dev')}
-## Prod
-
-${section('prod')}
-## Day to day
-
-| I want to… | Do |
-|---|---|
-| deploy a new build to dev | Backstage → CD card → **Deploy to dev** → pick a build → step 5 (Sync) |
-| put dev's version into prod | Backstage → **Promote to prod** → merge the PR → step 8 (Sync) |
-| roll back | **Deploy to dev** with an older build (the last 5 images are kept) → Sync; then promote |
-| change a secret | Backstage → ${gitops} → **Secrets** → dev/prod (prod: maintainers/owners) → then: |
-
-\`\`\`bash
-# apply a changed secret now (dev; use ${prod} for prod) — only when the app already runs there
-${applySecretsCmd(repo, nsKey, 'dev')}
-\`\`\`
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| \`namespaces "${prod}" not found\` | prod not synced yet | steps 7 + 8 |
-| \`argocd-prod.yaml\` → 404 | first promote PR not merged yet (or GitHub cache, ~5 min) | merge the PR, wait |
-| pod \`Pending\` | node label missing | step 1 |
-| ExternalSecret \`SecretSyncedError\` | login secret missing/wrong, or store missing | step 2 ("New ESO login"), steps 3 / 7 |
-| pod \`ImagePullBackOff\` | image package is private | GitHub → Packages → ${repo} → make public |
-| pod \`CrashLoopBackOff\` | app fails at start — often a \`CHANGE_ME\` secret | Secrets tab → set the value → apply |
-| Application \`OutOfSync\` | expected: sync is manual | Sync (steps 5 / 8) |
-
-`;
-};
-const mkdocs = (repo: string) => `site_name: ${repo}-gitops\nnav: [{ Runbook: index.md }]\nplugins: [techdocs-core]\n`;
-
-// ---------- tenants (app-of-apps): Backstage writes the ArgoCD objects to git, ArgoCD creates them ----------
-// gitops-backstage/platform/tenants/<space>/<app>.yaml  → watched by the root Application "platform-tenants"
-// (applied ONCE by the owner). The ESO login of each app lives in Infisical project "platform-eso" (written by
-// Backstage, read by ESO via store infisical-platform-eso, only into namespace external-secrets) — no human sees it.
-
-const PLATFORM_REPO = 'gitops-backstage';
-const PLATFORM_ESO = 'platform-eso';
-const loginKey = (repo: string, part: 'CLIENT_ID' | 'CLIENT_SECRET') => `${repo.toUpperCase().replaceAll('-', '_')}_${part}`;
-
-/** Infisical project platform-eso (created by backstage-platform) + read access for the cluster's ESO identity. */
-async function ensurePlatformEso(config: Config) {
-  const { orgId, api } = await infisical(config);
-  let ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === PLATFORM_ESO);
-  if (!ws) {
-    const c = await api('POST', '/api/v2/workspace', { projectName: PLATFORM_ESO, slug: PLATFORM_ESO, organizationId: orgId });
-    if (!c.ok) throw err(502, `Infisical: cannot create project ${PLATFORM_ESO} (${c.status})`);
-    ws = c.json.project ?? c.json.workspace;
-  }
-  const esoName = config.getOptionalString('infisical.esoIdentity') ?? 'k8s-eso';
-  const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
-  const esoId = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === esoName)?.identity?.id;
-  if (esoId) await api('POST', `/api/v2/workspace/${ws.id}/identity-memberships/${esoId}`, { role: 'viewer' }); // 400 if already member
-  return { api, orgId, wsId: ws.id as string, slug: ws.slug as string };
-}
-
-/** Fresh client secret for eso-<repo>, written into platform-eso (prod, /). Returns nothing secret. */
-async function rotateEsoLogin(config: Config, repo: string, who: string): Promise<string> {
-  const p = await ensurePlatformEso(config);
-  const ids = await p.api('GET', `/api/v2/organizations/${p.orgId}/identity-memberships`);
-  const id = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === `eso-${repo}`)?.identity?.id;
-  if (!id) throw err(404, `Infisical identity eso-${repo} not found`);
-  const ua = await p.api('GET', `/api/v1/auth/universal-auth/identities/${id}`);
-  const cs = await p.api('POST', `/api/v1/auth/universal-auth/identities/${id}/client-secrets`, { description: `ESO (Backstage, by ${who})` });
-  if (!ua.ok || !cs.ok) throw err(502, `Infisical: cannot create a login for eso-${repo} (${ua.status}/${cs.status})`);
-  for (const [part, value] of [['CLIENT_ID', ua.json.identityUniversalAuth?.clientId], ['CLIENT_SECRET', cs.json.clientSecret]] as const) {
-    const body = { workspaceId: p.wsId, environment: 'prod', secretPath: '/', secretValue: String(value), type: 'shared' };
-    const key = encodeURIComponent(loginKey(repo, part));
-    let r = await p.api('PATCH', `/api/v3/secrets/raw/${key}`, body);
-    if (!r.ok) r = await p.api('POST', `/api/v3/secrets/raw/${key}`, body);
-    if (!r.ok) throw err(502, `Infisical: cannot store the login of eso-${repo} (${r.status})`);
-  }
-  return p.slug; // real slug of platform-eso (for the platform store)
-}
-
-const tenantYaml = (repo: string, project: string, envs: Env[], appSlug: string, url: string, nsKey: string) => [
-  `# GENERATED by Backstage — DevOps Space ${project} · app ${repo}. Do not edit; Create deployment / Promote / Delete manage it.\n`,
-  `apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: infisical-${repo}-auth
-  namespace: external-secrets
-spec:
-  refreshInterval: 5m
-  secretStoreRef: { kind: ClusterSecretStore, name: infisical-platform-eso }
-  target: { name: infisical-${repo}-auth }
-  data:
-    - { secretKey: clientId, remoteRef: { key: ${loginKey(repo, 'CLIENT_ID')} } }
-    - { secretKey: clientSecret, remoteRef: { key: ${loginKey(repo, 'CLIENT_SECRET')} } }
-`,
-  ...envs.map(e => secretStore(repo, project, e, appSlug, url, nsKey)),
-  ...envs.map(e => application(repo, project, e, nsKey)),
-].join('---\n');
-
-const PLATFORM_FILES = {
-  store: 'platform/tenants/_platform/store-platform-eso.yaml',
-};
-const platformStore = (url: string, esoSlug: string) => `# ESO reads the per-app logins from Infisical project platform-eso — only into namespace external-secrets.
-apiVersion: external-secrets.io/v1
-kind: ClusterSecretStore
-metadata:
-  name: infisical-platform-eso
-spec:
-  conditions:
-    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: external-secrets } }
-  provider:
-    infisical:
-      hostAPI: ${url}
-      auth:
-        universalAuthCredentials:
-          clientId: { name: infisical-backstage-auth, namespace: external-secrets, key: clientId }
-          clientSecret: { name: infisical-backstage-auth, namespace: external-secrets, key: clientSecret }
-      secretsScope: { projectSlug: ${esoSlug}, environmentSlug: prod, secretsPath: / }
-`;
-
-/** Write (content) or remove (null) the tenant file of an app in gitops-backstage. One commit, retried once on a race. */
-async function writeTenant(token: string, project: string, repo: string, content: string | null, message: string, url: string, esoSlug = '') {
-  const files: { path: string; content: string | null }[] = [{ path: `platform/tenants/${project}/${repo}.yaml`, content }];
-  if (content !== null) {
-    // AppProject <space>: destinations = every namespace used by the space's apps (this file + the others)
-    const tree = await gh(token, 'GET', `/repos/${OWNER}/${PLATFORM_REPO}/git/trees/main?recursive=1`);
-    const others = ((tree.json?.tree ?? []) as any[]).map(t => t.path as string)
-      .filter(f => f.startsWith(`platform/tenants/${project}/`) && f.endsWith('.yaml') && !f.endsWith('/appproject.yaml') && f !== `platform/tenants/${project}/${repo}.yaml`);
-    const texts = [content, ...(await Promise.all(others.map(f => readFile(token, PLATFORM_REPO, f))))];
-    const nss = texts.flatMap(t => [...String(t ?? '').matchAll(/destination: \{ server: \S+, namespace: ([a-z0-9-]+) \}/g)].map(m => m[1]));
-    files.push({ path: `platform/tenants/${project}/appproject.yaml`, content: `# GENERATED by Backstage — ArgoCD project of DevOps Space ${project}.\n${appProject(project, nss)}` });
-    if (esoSlug && !(await readFile(token, PLATFORM_REPO, PLATFORM_FILES.store))) files.push({ path: PLATFORM_FILES.store, content: platformStore(url, esoSlug) });
-  }
-  try { await commit(token, PLATFORM_REPO, message, files); } catch { await commit(token, PLATFORM_REPO, message, files); }
-}
-
-
-/** Short namespace key of an app (deployment.json in <repo>-gitops). Older deployments: the space name. */
-export async function nsKeyOf(token: string, repo: string, project: string) {
-  const meta = await readFile(token, `${repo}-gitops`, 'deployment.json');
-  try { return String(JSON.parse(meta ?? '{}').nsKey ?? project); } catch { return project; }
-}
-
-/** Is dev-<key> / prod-<key> free? (not reserved, not used by another app's tenant file) */
-async function nsKeyFree(token: string, nsKey: string, repo: string) {
-  if (RESERVED_NS.includes(nsKey)) return false;
-  const tree = await gh(token, 'GET', `/repos/${OWNER}/${PLATFORM_REPO}/git/trees/main?recursive=1`);
-  const files = ((tree.json?.tree ?? []) as any[]).map(t => t.path as string)
-    .filter(f => f.startsWith('platform/tenants/') && f.endsWith('.yaml') && !f.endsWith(`/${repo}.yaml`) && !f.endsWith('/appproject.yaml') && !f.includes('/_platform/'));
-  for (const f of files) {
-    const t = (await readFile(token, PLATFORM_REPO, f)) ?? '';
-    if (new RegExp(`namespace: (dev|prod)-${nsKey} \\}`).test(t)) return false;
-  }
-  return true;
-}
-
 // ---------- create ----------
 
 export async function createDeployment(config: Config, repo: string, d: DeploymentInput, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
   const { info, project } = await appInfo(token, repo);
   if (!allowed(refs, project, [...ROLE.CREATE])) throw err(403, `only maintainers/managers of ${project} can create deployments`);
-  const image = info.match(/everesto\.live\/image:\s*(\S+)/)?.[1];
+  const image = component(info)?.annotations['everesto.live/image'];
   if (!image) throw err(409, `${repo} builds no image — CD needs a CI application with an image`);
   for (const x of [...d.secrets, ...d.config]) if (!NAME.test(x.name)) throw err(400, `invalid variable name ${x.name} (A-Z 0-9 _)`);
   if (!(d.port > 0 && d.port < 65536) || !(d.memoryMi >= 64 && d.memoryMi <= 1024) || !(d.replicas >= 1 && d.replicas <= 3)) {
@@ -687,7 +138,7 @@ export async function deploy(config: Config, repo: string, tag: string, refs: st
   const nsKey = await nsKeyOf(token, repo, project);
   if (tagOf(dev) === tag) throw err(409, `dev already has ${tag} — click Sync in ArgoCD if it isn't running yet`);
   const sha = await commit(token, gitops, `dev: image → ${tag} (Backstage, by ${who})`,
-    [{ path: 'apps/dev/kustomization.yaml', content: dev.replace(/(newTag:\s*)\S+/, `$1${tag}`) }]);
+    [{ path: 'apps/dev/kustomization.yaml', content: setKustomizeTag(dev, tag) }]);
   return {
     from: tagOf(dev), to: tag, commit: sha, argocdApp: `dev-${repo}`,
     commands: [
@@ -711,15 +162,14 @@ export async function promote(config: Config, repo: string, refs: string[], who:
   const files: { path: string; content: string }[] = [];
   const commands: { title: string; cmd: string }[] = [];
   if (prod) {
-    files.push({ path: 'apps/prod/kustomization.yaml', content: prod.replace(/(newTag:\s*)\S+/, `$1${devTag}`) });
+    files.push({ path: 'apps/prod/kustomization.yaml', content: setKustomizeTag(prod, devTag) });
   } else {
     // first promote: create prod from dev (own namespace, own secrets in Infisical prod)
     const meta = JSON.parse((await readFile(token, gitops, 'deployment.json')) ?? '{}');
     const devDep = (await readFile(token, gitops, 'apps/dev/deployment.yaml')) ?? '';
     const devSvc = (await readFile(token, gitops, 'apps/dev/service.yaml')) ?? '';
     const stores = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
-    const slug = stores.match(/projectSlug:\s*([^,\s}]+)/)?.[1];
-    const url = stores.match(/hostAPI:\s*(\S+)/)?.[1];
+    const { slug, url } = infisicalStore(stores);
     if (!slug || !url) throw err(409, 'argocd/secret-stores.yaml is missing — cannot create prod');
     await infisicalSetup(config, repo, 'prod', ((meta.secrets ?? []) as string[]).map(n => ({ name: n })));
     files.push(
@@ -758,8 +208,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
   if (!prod) {
     // first promote: the prod store + Application <repo>-prod join the tenant file (ArgoCD creates them)
     const st = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
-    const slug = st.match(/projectSlug:\s*([^,\s}]+)/)?.[1] ?? '';
-    const url = st.match(/hostAPI:\s*(\S+)/)?.[1] ?? '';
+    const { slug = '', url = '' } = infisicalStore(st);
     if (slug && url) await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev', 'prod'], slug, url, nsKey), `tenants: ${project}/${repo} prod (Backstage, by ${who})`, url);
   }
 
@@ -788,7 +237,7 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   const gitops = `${repo}-gitops`;
   const done: string[] = [];
   const docs = info.split(/\n---\n/);
-  const kept = docs.filter(doc => !(/kind: Resource/.test(doc) && doc.includes(`name: ${gitops}`)));
+  const kept = docs.filter(doc => !findDoc(doc, 'Resource', gitops)); // parsed — a comment mentioning it doesn't count
   const files: { path: string; content: string }[] = [];
   if (kept.length !== docs.length) files.push({ path: 'catalog-info.yaml', content: `${kept.join('\n---\n').trimEnd()}\n` });
   // legacy (before 2026-11-14 evening): CI had a "Deploy dev (ArgoCD)" stage + GITOPS_DEPLOY_KEY
@@ -884,9 +333,4 @@ export async function secretDelete(config: Config, repo: string, env: Env, name:
   const r = await api('DELETE', `/api/v3/secrets/raw/${encodeURIComponent(name)}`, { workspaceId: ws.id, environment: env, secretPath: '/', type: 'shared' });
   if (!r.ok) throw err(502, `Infisical: cannot delete ${name} (${r.status})`);
   return { deleted: name, env, applyCmd: refresh(repo, nsKey, env) };
-}
-
-/** Used by Delete application: remove the tenant file (ArgoCD then deletes apps, stores, login). */
-export async function removeTenant(token: string, project: string, repo: string, who: string) {
-  await writeTenant(token, project, repo, null, `tenants: ${project}/${repo} removed with the application (Backstage, by ${who})`, '');
 }
