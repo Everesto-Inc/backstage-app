@@ -22,7 +22,7 @@ import { collectEsoState, explainStatus, probeUrl } from './everestoStatus';
 import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
 import { FLOWERS, createSpace } from './everestoSpaces';
-import { SPACE_ROLES, SpaceRole, addMember, canManageRole, removeMember } from './everestoMembers';
+import { SPACE_ROLES, SpaceRole, addMember, givableRoles, removeMember } from './everestoMembers';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -495,9 +495,10 @@ export const everestoInsightsPlugin = createBackendPlugin({
         // ---- members of a DevOps Space (real Invite / Remove) ----
         const memberChange = async (req: express.Request, res: express.Response, remove: boolean) => {
           const { space } = req.params;
-          const role = req.body?.role as SpaceRole;
+          // add: one or several roles at once (body.roles) · remove: one role (body.role)
+          const roles = [...new Set((Array.isArray(req.body?.roles) && !remove ? req.body.roles : [req.body?.role]) as SpaceRole[])];
           const login = str(req.body?.username).replace(/^@/, '');
-          if (!/^[a-z0-9-]{1,63}$/.test(space) || !SPACE_ROLES.includes(role) || !/^[A-Za-z0-9-]{1,39}$/.test(login)) {
+          if (!/^[a-z0-9-]{1,63}$/.test(space) || !roles.length || !roles.every(r => SPACE_ROLES.includes(r)) || !/^[A-Za-z0-9-]{1,39}$/.test(login)) {
             res.status(400).json({ error: 'invalid space, role or GitHub username' });
             return;
           }
@@ -506,20 +507,24 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const credentials = await auth.getOwnServiceCredentials();
             const sys = await catalog.getEntityByRef(`system:default/${space}`, { credentials });
             if (!sys) { res.status(404).json({ error: `space ${space} not found` }); return; }
-            if (!canManageRole(refs, space, role, String(sys.spec?.domain ?? ''))) {
-              res.status(403).json({ error: role === 'developers' || role === 'viewers' ? `only managers of ${space} (or the owner) can change members` : 'only the owner can give or take the Manager / Maintainer role' });
+            const mayGive = givableRoles(refs, space, String(sys.spec?.domain ?? ''));
+            const refused = roles.filter(r => !mayGive.includes(r));
+            if (refused.length) {
+              res.status(403).json({ error: mayGive.length
+                ? `you can ${remove ? 'take' : 'give'} only ${mayGive.join(', ')} in ${space} — ${refused.join(', ')} needs ${refused.includes('managers') ? 'the owner' : 'a manager or the owner'}`
+                : `only maintainers, managers or the owner can change members of ${space}` });
               return;
             }
             const email = str(req.body?.email) || undefined;
             if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { res.status(400).json({ error: 'invalid email' }); return; }
             const out = remove
-              ? await removeMember(config, space, role, login, who)
-              : await addMember(config, space, role, login, email, str(req.body?.displayName) || undefined, who);
+              ? await removeMember(config, space, roles[0], login, who)
+              : await addMember(config, space, roles, login, email, str(req.body?.displayName) || undefined, who);
             // re-read the catalog files now instead of waiting for the next processing loop
-            for (const ref of [`group:default/${space}-${role}`, 'group:default/platform-team']) {
+            for (const ref of [...roles.map(r => `group:default/${space}-${r}`), 'group:default/platform-team']) {
               await catalog.refreshEntity(ref, { credentials }).catch(() => undefined);
             }
-            logger.info(`members of ${space} (${role}) ${remove ? '-' : '+'} ${login} by ${who}: ${out.done.join(', ')}`);
+            logger.info(`members of ${space} (${roles.join(',')}) ${remove ? '-' : '+'} ${login} by ${who}: ${out.done.join(', ')}`);
             res.json(out);
           } catch (e) { fail(res, e); }
         };

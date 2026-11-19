@@ -6,7 +6,8 @@
  *           membership if already in the org.
  *   remove: username out of that role group (commit) → removed from that GitHub team (org account untouched).
  *
- * Who: owner (platform-team) any role · managers / entity managers of the space: developers + viewers only.
+ * Who (givableRoles): owner (platform-team) every role, several at once · managers + entity managers: maintainers,
+ * developers, viewers · maintainers: developers, viewers · developers / viewers: nobody.
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
@@ -18,11 +19,18 @@ export type SpaceRole = (typeof SPACE_ROLES)[number];
 const CATALOG = 'everesto-catalog';
 const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
+/** Roles the caller may give or take in this space. */
+export function givableRoles(refs: string[], space: string, entityOfSpace: string): SpaceRole[] {
+  const has = (g: string) => refs.includes(`group:default/${g}`);
+  if (has('platform-team')) return [...SPACE_ROLES]; // owner: every role
+  if (has(`${space}-managers`) || (!!entityOfSpace && has(`${entityOfSpace}-admins`))) return ['maintainers', 'developers', 'viewers'];
+  if (has(`${space}-maintainers`)) return ['developers', 'viewers'];
+  return [];
+}
+
 /** May the caller give/take this role in this space? */
 export function canManageRole(refs: string[], space: string, role: SpaceRole, entityOfSpace: string) {
-  if (refs.includes('group:default/platform-team')) return true; // owner: every role
-  const manager = refs.includes(`group:default/${space}-managers`) || (!!entityOfSpace && refs.includes(`group:default/${entityOfSpace}-admins`));
-  return manager && (role === 'developers' || role === 'viewers'); // Manager / Maintainer ticks: owner only
+  return givableRoles(refs, space, entityOfSpace).includes(role);
 }
 
 // group members are read/edited with a real YAML parser (comments + other documents untouched)
@@ -39,7 +47,7 @@ spec:
   memberOf: []
 `;
 
-export async function addMember(config: Config, space: string, role: SpaceRole, login: string, email: string | undefined, displayName: string | undefined, who: string) {
+export async function addMember(config: Config, space: string, roles: SpaceRole[], login: string, email: string | undefined, displayName: string | undefined, who: string) {
   const token = await githubToken(config, OWNER);
   const u = await gh(token, 'GET', `/users/${encodeURIComponent(login)}`);
   if (!u.ok) throw err(404, `GitHub user "${login}" does not exist — they must create a GitHub account first`);
@@ -54,30 +62,34 @@ export async function addMember(config: Config, space: string, role: SpaceRole, 
     files.push({ path: 'platform/org.yaml', content: `${org.trimEnd()}\n${userDoc(name, u.json.login, email, displayName)}` });
     done.push(`user ${name} created in the catalog`);
   }
-  if (!groupMembers(spaceYaml, `${space}-${role}`).includes(name)) {
-    files.push({ path: spaceFile, content: setGroupMembers(spaceYaml, `${space}-${role}`, m => [...m, name]) });
-  }
-  if (!files.length) return { done: [`${name} is already ${role} of ${space}`], warn: [] };
-  await commit(token, CATALOG, `members: ${name} → ${space}-${role} (Backstage, by ${who})`, files);
-  done.push(`${name} added to ${space}-${role}`);
+  const added = roles.filter(r => !groupMembers(spaceYaml, `${space}-${r}`).includes(name));
+  const already = roles.filter(r => !added.includes(r));
+  let next = spaceYaml;
+  for (const r of added) next = setGroupMembers(next, `${space}-${r}`, m => [...m, name]);
+  if (added.length) files.push({ path: spaceFile, content: next });
+  if (!files.length) return { done: [`${name} already has ${roles.join(', ')} in ${space}`], warn: [] };
+  await commit(token, CATALOG, `members: ${name} → ${added.map(r => `${space}-${r}`).join(', ')} (Backstage, by ${who})`, files);
+  if (added.length) done.push(`${name} added as ${added.join(' + ')} of ${space}`);
+  const warn: string[] = already.length ? [`already ${already.join(', ')} — unchanged`] : [];
 
-  // GitHub: team membership or org invitation (with the team)
-  const warn: string[] = [];
-  const team = `${space}-${role}`;
-  const t = await gh(token, 'GET', `/orgs/${OWNER}/teams/${team}`);
+  // GitHub: one team per role (viewers need none — public repos). Org member → team membership; else ONE invitation with all teams.
+  const teams = await Promise.all(added.filter(r => r !== 'viewers').map(async r => ({ name: `${space}-${r}`, t: await gh(token, 'GET', `/orgs/${OWNER}/teams/${space}-${r}`) })));
   const isMember = (await gh(token, 'GET', `/orgs/${OWNER}/members/${name}`)).status === 204;
-  if (role === 'viewers') {
-    if (!isMember) warn.push('viewers need no GitHub access (public repos) — no org invitation sent');
-  } else if (isMember && t.ok) {
-    const r = await gh(token, 'PUT', `/orgs/${OWNER}/teams/${team}/memberships/${name}`, { role: 'member' });
-    if (r.ok) done.push(`GitHub team ${team}`); else warn.push(`GitHub team ${team}: HTTP ${r.status}`);
-  } else if (!isMember) {
-    const r = await gh(token, 'POST', `/orgs/${OWNER}/invitations`, { invitee_id: u.json.id, role: 'direct_member', ...(t.ok ? { team_ids: [t.json.id] } : {}) });
-    if (r.ok) done.push(`GitHub invitation to ${OWNER}${t.ok ? ` (team ${team})` : ''} — they accept it by email`);
-    else if (r.status === 422) warn.push('GitHub invitation already pending — they must accept it');
+  const missing = teams.filter(x => !x.t.ok).map(x => x.name);
+  if (missing.length) warn.push(`team ${missing.join(', ')} does not exist yet — the access sync creates it (every 30 min, or GitHub access → Apply)`);
+  const existing = teams.filter(x => x.t.ok);
+  if (isMember) {
+    for (const x of existing) {
+      const r = await gh(token, 'PUT', `/orgs/${OWNER}/teams/${x.name}/memberships/${name}`, { role: 'member' });
+      if (r.ok) done.push(`GitHub team ${x.name}`); else warn.push(`GitHub team ${x.name}: HTTP ${r.status}`);
+    }
+  } else if (existing.length) {
+    const r = await gh(token, 'POST', `/orgs/${OWNER}/invitations`, { invitee_id: u.json.id, role: 'direct_member', team_ids: existing.map(x => x.t.json.id) });
+    if (r.ok) done.push(`GitHub invitation to ${OWNER} (teams ${existing.map(x => x.name).join(', ')}) — they accept it by email`);
+    else if (r.status === 422) warn.push('GitHub invitation already pending — they must accept it; the access sync adds the teams afterwards');
     else warn.push(`GitHub invitation: HTTP ${r.status}`);
-  } else {
-    warn.push(`team ${team} does not exist yet — run GitHub access → Apply once`);
+  } else if (!isMember && added.every(r => r === 'viewers')) {
+    warn.push('viewers need no GitHub access (public repos) — no org invitation sent');
   }
   return { done, warn, user: name };
 }

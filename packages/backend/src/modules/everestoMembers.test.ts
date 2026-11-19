@@ -1,4 +1,4 @@
-import { canManageRole, groupMembers, setGroupMembers } from './everestoMembers';
+import { canManageRole, givableRoles, groupMembers, setGroupMembers } from './everestoMembers';
 
 const SPACE = `apiVersion: backstage.io/v1alpha1
 kind: System
@@ -39,21 +39,24 @@ describe('setGroupMembers / groupMembers', () => {
   });
 });
 
-describe('canManageRole', () => {
-  it('owner may set every role', () => {
-    expect(canManageRole(['group:default/platform-team'], 'orchid', 'managers', 'blackbuck')).toBe(true);
+describe('who may give which role', () => {
+  it('owner: every role', () => {
+    expect(givableRoles(['group:default/platform-team'], 'orchid', 'blackbuck')).toEqual(['managers', 'maintainers', 'developers', 'viewers']);
   });
-  it('managers and entity managers add developers/viewers, not maintainers/managers', () => {
+  it('managers and entity managers: maintainers, developers, viewers — not managers', () => {
     for (const refs of [['group:default/orchid-managers'], ['group:default/blackbuck-admins']]) {
+      expect(canManageRole(refs, 'orchid', 'maintainers', 'blackbuck')).toBe(true);
       expect(canManageRole(refs, 'orchid', 'developers', 'blackbuck')).toBe(true);
       expect(canManageRole(refs, 'orchid', 'viewers', 'blackbuck')).toBe(true);
-      expect(canManageRole(refs, 'orchid', 'maintainers', 'blackbuck')).toBe(false);
       expect(canManageRole(refs, 'orchid', 'managers', 'blackbuck')).toBe(false);
     }
   });
-  it('maintainers and developers cannot manage members; no crossing spaces', () => {
-    expect(canManageRole(['group:default/orchid-maintainers'], 'orchid', 'developers', 'blackbuck')).toBe(false);
-    expect(canManageRole(['group:default/lily-managers'], 'orchid', 'developers', 'blackbuck')).toBe(false);
-    expect(canManageRole(['group:default/okapi-admins'], 'orchid', 'developers', 'blackbuck')).toBe(false);
+  it('maintainers: developers and viewers only', () => {
+    expect(givableRoles(['group:default/orchid-maintainers'], 'orchid', 'blackbuck')).toEqual(['developers', 'viewers']);
+  });
+  it('developers, viewers and other spaces/entities: nothing', () => {
+    expect(givableRoles(['group:default/orchid-developers', 'group:default/orchid-viewers'], 'orchid', 'blackbuck')).toEqual([]);
+    expect(givableRoles(['group:default/lily-managers'], 'orchid', 'blackbuck')).toEqual([]);
+    expect(givableRoles(['group:default/okapi-admins'], 'orchid', 'blackbuck')).toEqual([]);
   });
 });

@@ -11,7 +11,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  MenuItem,
+  Checkbox,
+  Chip,
+  FormControlLabel,
   TextField,
   Typography,
   makeStyles,
@@ -21,8 +23,8 @@ import { Member, ROLES, ROLE_LABEL, Role, useMembers, useSpaceRole } from './dat
 import { AccessSyncCard } from './AccessSyncCard';
 
 const ROLE_RIGHTS: Record<Role, string> = {
-  managers: 'promote to prod, prod secrets, delete applications, add/remove developers and viewers',
-  maintainers: 'create CI / repositories / deployments, deploy to dev, change tools, delete deployments',
+  managers: 'everything a maintainer can + promote to prod, prod secrets, delete applications, add/remove maintainers',
+  maintainers: 'create CI / repositories / deployments, deploy to dev, change tools, delete deployments, add/remove developers and viewers',
   developers: 'push code via pull request, dev secrets, run builds — creates nothing, deletes nothing',
   viewers: 'read only',
 };
@@ -53,7 +55,7 @@ const useStyles = makeStyles(theme => ({
   legend: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 16px', fontSize: 13, marginTop: theme.spacing(3) },
 }));
 
-/** Project (System) → "Members": who is in the project and with which role. Owners manage. */
+/** Space (System) → "Members": one row per person, all their roles. Owner / managers / maintainers manage (givableRoles). */
 export const ProjectMembers = () => {
   const classes = useStyles();
   const { entity } = useEntity();
@@ -65,13 +67,19 @@ export const ProjectMembers = () => {
   const [result, setResult] = useState<{ done: string[]; warn: string[] } | undefined>();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
-  // Managers add/remove developers and viewers of THEIR space; the Manager / Maintainer ticks are set by the owner
+  // who may give/take which role — same rule as the backend (everestoMembers.givableRoles)
   const myRole = useSpaceRole(project);
-  const isOwner = myRole.manager;
+  const givable: Role[] = (() => {
+    if (myRole.superAdmin) return [...ROLES];
+    if (myRole.manager) return ['maintainers', 'developers', 'viewers'];
+    if (myRole.maintainer) return ['developers', 'viewers'];
+    return [];
+  })();
+  const isOwner = givable.length > 0;
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<Member | undefined>();
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<Role>('developers');
+  const [roles, setRoles] = useState<Role[]>(['developers']);
 
   const api = useEveresto();
   const call = async (path: string, body: unknown) => {
@@ -84,8 +92,15 @@ export const ProjectMembers = () => {
       alertApi.post({ message: e.message, severity: 'error' });
     } finally { setBusy(false); }
   };
-  const closeInvite = () => { setInviting(false); setResult(undefined); setUsername(''); setEmail(''); setDisplayName(''); };
+  const closeInvite = () => { setInviting(false); setResult(undefined); setUsername(''); setEmail(''); setDisplayName(''); setRoles(['developers']); };
   const closeRemove = () => { setRemoving(undefined); setResult(undefined); };
+
+  // one row per person, all their roles as chips (× = remove that role, only where you may)
+  const people = ROLES.flatMap(r => (value ?? []).filter(m => m.role === r)).reduce<{ user: Member['user']; roles: Role[] }[]>((acc, m) => {
+    const p = acc.find(x => x.user.metadata.name === m.user.metadata.name);
+    if (p) p.roles.push(m.role); else acc.push({ user: m.user, roles: [m.role] });
+    return acc;
+  }, []);
 
   if (loading && !value) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
@@ -93,7 +108,7 @@ export const ProjectMembers = () => {
   return (
     <Box maxWidth={900}>
       <Box display="flex" alignItems="center" mb={2}>
-        <Typography variant="h6">Members · {value?.length ?? 0}</Typography>
+        <Typography variant="h6">Members · {new Set((value ?? []).map(m => m.user.metadata.name)).size}</Typography>
         {isOwner && (
           <Box ml="auto">
             <Button variant="contained" color="primary" disableElevation startIcon={<PersonAddIcon />} onClick={() => setInviting(true)}>
@@ -104,26 +119,24 @@ export const ProjectMembers = () => {
       </Box>
 
       <div className={classes.list}>
-        {(value ?? []).map(m => (
-          <div key={`${m.user.metadata.name}-${m.role}`} className={classes.row}>
-            <Avatar src={(m.user.spec as any)?.profile?.picture} style={{ width: 36, height: 36 }}>
-              {(((m.user.spec as any)?.profile?.displayName ?? m.user.metadata.name) as string)[0].toUpperCase()}
+        {people.map(({ user, roles: theirs }) => (
+          <div key={user.metadata.name} className={classes.row}>
+            <Avatar src={(user.spec as any)?.profile?.picture} style={{ width: 36, height: 36 }}>
+              {(((user.spec as any)?.profile?.displayName ?? user.metadata.name) as string)[0].toUpperCase()}
             </Avatar>
             <Box minWidth={0}>
-              <EntityRefLink entityRef={m.user} style={{ fontWeight: 600 }}>
-                {(m.user.spec as any)?.profile?.displayName ?? m.user.metadata.name}
+              <EntityRefLink entityRef={user} style={{ fontWeight: 600 }}>
+                {(user.spec as any)?.profile?.displayName ?? user.metadata.name}
               </EntityRefLink>
               <Typography variant="caption" color="textSecondary" component="div">
-                @{m.user.metadata.name} · {(m.user.spec as any)?.profile?.email ?? 'no email'}
+                @{user.metadata.name} · {(user.spec as any)?.profile?.email ?? 'no email'}
               </Typography>
             </Box>
-            <Box ml="auto" display="flex" alignItems="center" style={{ gap: 12 }}>
-              <span className={classes.role}>{ROLE_LABEL[m.role]}</span>
-              {isOwner && (myRole.superAdmin || m.role === 'developers' || m.role === 'viewers') && (
-                <Button size="small" style={{ color: '#d03b3b' }} onClick={() => setRemoving(m)}>
-                  Remove
-                </Button>
-              )}
+            <Box ml="auto" display="flex" alignItems="center" flexWrap="wrap" justifyContent="flex-end" style={{ gap: 8 }}>
+              {theirs.map(r => (
+                <Chip key={r} size="small" label={ROLE_LABEL[r]}
+                  onDelete={givable.includes(r) ? () => setRemoving({ user, role: r }) : undefined} />
+              ))}
             </Box>
           </div>
         ))}
@@ -150,28 +163,33 @@ export const ProjectMembers = () => {
             <>
               <Typography variant="body2" color="textSecondary" paragraph>
                 Login is with GitHub: enter the person's <b>GitHub username</b> (they need a GitHub account first).
-                Backstage adds them to the catalog with this role and invites them to the GitHub organisation with the right team.
+                Backstage adds them with the ticked roles and invites them to the GitHub organisation with the right teams (one email).
               </Typography>
               <Box display="flex" style={{ gap: 12 }}>
                 <TextField label="GitHub username" required fullWidth variant="outlined" size="small" value={username}
                   onChange={e => setUsername(e.target.value.trim())} placeholder="e.g. babu-chan" />
-                <TextField select label="Role" variant="outlined" size="small" value={role} onChange={e => setRole(e.target.value as Role)} style={{ minWidth: 160 }}>
-                  {ROLES.filter(r => myRole.superAdmin || r === 'developers' || r === 'viewers').map(r => <MenuItem key={r} value={r}>{ROLE_LABEL[r]}</MenuItem>)}
-                </TextField>
+              </Box>
+              <Box mt={2}>
+                <Typography variant="subtitle2">Roles</Typography>
+                {givable.map(r => (
+                  <FormControlLabel key={r} label={<span><b>{ROLE_LABEL[r]}</b> <Typography component="span" variant="caption" color="textSecondary">{ROLE_RIGHTS[r]}</Typography></span>}
+                    control={<Checkbox color="primary" checked={roles.includes(r)}
+                      onChange={e => setRoles(cur => (e.target.checked ? [...cur, r] : cur.filter(x => x !== r)))} />} />
+                ))}
               </Box>
               <Box display="flex" style={{ gap: 12 }} mt={2}>
                 <TextField label="Email (optional)" fullWidth variant="outlined" size="small" value={email} onChange={e => setEmail(e.target.value)} />
                 <TextField label="Display name (optional)" fullWidth variant="outlined" size="small" value={displayName} onChange={e => setDisplayName(e.target.value)} />
               </Box>
-              {!myRole.superAdmin && <Typography variant="caption" color="textSecondary">Managers add developers and viewers; Manager / Maintainer roles are given by the owner.</Typography>}
+              {!myRole.superAdmin && <Typography variant="caption" color="textSecondary">{myRole.manager ? 'Managers give Maintainer, Developer and Viewer; the Manager role is given by the owner.' : 'Maintainers give Developer and Viewer.'}</Typography>}
             </>
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={closeInvite} disabled={busy}>{result ? 'Close' : 'Cancel'}</Button>
           {!result && (
-            <Button color="primary" variant="contained" disableElevation disabled={busy || !username}
-              onClick={() => call('members', { username, role, email: email || undefined, displayName: displayName || undefined })}>
+            <Button color="primary" variant="contained" disableElevation disabled={busy || !username || !roles.some(r => givable.includes(r))}
+              onClick={() => call('members', { username, roles: roles.filter(r => givable.includes(r)), email: email || undefined, displayName: displayName || undefined })}>
               {busy ? 'Adding…' : 'Add member'}
             </Button>
           )}
