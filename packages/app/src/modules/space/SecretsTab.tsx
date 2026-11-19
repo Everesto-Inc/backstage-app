@@ -132,14 +132,13 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
         <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
           <Typography variant="subtitle2">ESO login (identity eso-{repo})</Typography>
           <Typography variant="body2" color="textSecondary">
-            The cluster reads these secrets with the Kubernetes secret <code>infisical-{repo}-auth</code>. Lost it, new cluster, or rotating?
-            Create a new client secret — the command (client ID + client secret) is shown once.
+            The cluster reads this app's secrets with the login <code>infisical-{repo}-auth</code>, kept up to date automatically (Infisical → ESO).
+            Rotate it (new client secret) if it may have leaked — nothing to copy, nothing to run.
           </Typography>
           <Box mt={1}><Button size="small" variant="outlined" disabled={busy} onClick={newLogin}>New ESO login</Button></Box>
           {esoCmd && (
             <>
-              <CmdBox title={`Infisical login for ESO (eso-${repo}) — shown ONCE, copy it now`} cmd={esoCmd} secret />
-              <Typography variant="caption" style={{ color: STATUS.critical }}>Not stored anywhere — gone when you leave this page.</Typography>
+              <CmdBox title={`✓ New login for eso-${repo} stored in Infisical — ESO picks it up within 5 minutes (nothing to run)`} cmd={esoCmd} />
             </>
           )}
         </Box>

@@ -229,16 +229,15 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
             ))}
             <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
               <Typography variant="subtitle2">Setup commands (control plane) — also in the Tech Docs tab of {gitops}</Typography>
-              <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never stored — use “New ESO login” to get the login command again.</Typography>
+              <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never shown — the ESO login is managed automatically (“New ESO login” rotates it).</Typography>
               <SetupSteps steps={setup ?? []} />
               <Box mt={2} display="flex" alignItems="center" style={{ gap: 12 }}>
                 <Button size="small" variant="outlined" disabled={busy || !roles.maintainer} onClick={newLogin}>New ESO login</Button>
-                <Typography variant="caption" color="textSecondary">creates a new client secret for eso-{repo} in Infisical and shows the command once</Typography>
+                <Typography variant="caption" color="textSecondary">rotates the login of eso-{repo} in Infisical — applied automatically</Typography>
               </Box>
               {esoCmd && (
                 <>
-                  <CmdBox title={`Infisical login for ESO (eso-${repo}) — shown ONCE, copy it now`} cmd={esoCmd} secret />
-                  <Typography variant="caption" style={{ color: STATUS.critical }}>Not stored anywhere — after closing this dialog it is gone.</Typography>
+                  <CmdBox title={`✓ New login for eso-${repo} stored in Infisical — ESO picks it up within 5 minutes (nothing to run)`} cmd={esoCmd} />
                 </>
               )}
             </Box>
