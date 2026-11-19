@@ -66,29 +66,23 @@ export const PipelineFlow = ({ entity, tools, size = 34, labels = false }: { ent
 
   return (
     <div className={classes.flow} aria-label="pipeline">
-      {used.map(({ tool, state }, i) => {
-        const color = state.kind === 'error' ? STATUS.critical : STATUS.good;
-        const prevErr = i > 0 && used[i - 1].state.kind === 'error';
+      {used.map(({ tool }, i) => {
         return (
           <Fragment key={tool.id}>
             {i > 0 && (
               <div
                 className={classes.link}
-                style={{ marginTop: size / 2 - 1, background: prevErr ? STATUS.critical : linkGreen }}
+                style={{ marginTop: size / 2 - 1, background: linkGreen }}
               />
             )}
             <Tooltip
-              title={
-                state.kind === 'error'
-                  ? `${tool.name} — error: ${state.reason}`
-                  : `${tool.name} — connected${toolUrl(entity, tool.id) ? ' · click to open' : ''}`
-              }
+              title={`${tool.name} — connected${toolUrl(entity, tool.id) ? ' · click to open' : ''}`}
             >
               <div className={classes.step}>
                 <Box className={classes.node} component={toolUrl(entity, tool.id) ? 'a' : 'span'}
                   {...(toolUrl(entity, tool.id) ? { href: toolUrl(entity, tool.id), target: '_blank', rel: 'noopener', style: { cursor: 'pointer' } } : {})}>
                   <ToolLogo tool={tool} size={size} />
-                  <span className={classes.dot} style={{ background: color, width: size > 40 ? 14 : 12, height: size > 40 ? 14 : 12 }} />
+                  <span className={classes.dot} style={{ background: STATUS.good, width: size > 40 ? 14 : 12, height: size > 40 ? 14 : 12 }} />
                 </Box>
                 {labels && <span className={classes.label}>{tool.name}</span>}
               </div>

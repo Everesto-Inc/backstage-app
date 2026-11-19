@@ -2,7 +2,7 @@ import { createFrontendModule } from '@backstage/frontend-plugin-api';
 import { EntityCardBlueprint, EntityContentBlueprint } from '@backstage/plugin-catalog-react/alpha';
 
 /**
- * DevOps Space pages (real data in prod; demo numbers only with everesto.demoData).
+ * DevOps Space pages — live data only (GitHub, SonarQube, ArgoCD, Infisical, the cluster).
  *   Entity  (Domain) → "/" hierarchy: entity → its projects (DevOps Spaces), [Create project]
  *   Project (System) → "/" Pipelines (CI / CD / repos, tool chains, [Edit]),
  *                      Startup Guide · API Docs · Members · Connections

@@ -1,5 +1,5 @@
 import { ReactNode, useMemo, useState } from 'react';
-import { Box, Typography, makeStyles, useTheme } from '@material-ui/core';
+import { Box, makeStyles, useTheme } from '@material-ui/core';
 
 /**
  * Small, dependency-free SVG charts for the tool tabs.
@@ -173,69 +173,3 @@ export const Meter = ({ value, max = 100, target }: { value: number; max?: numbe
   );
 };
 
-/** Column chart of CI run durations; color = run status (labelled in legend + tooltip). */
-export const RunColumns = ({
-  runs,
-}: {
-  runs: { id: string; minutes: number; ok: boolean; commit: string }[];
-}) => {
-  const ink = useInk();
-  const classes = useStyles();
-  const [hover, setHover] = useState<number | undefined>();
-  const H = 140;
-  const max = Math.max(...runs.map(r => r.minutes)) * 1.15;
-  const gap = 2;
-  const w = 100 / runs.length;
-
-  return (
-    <Box>
-      <Box position="relative" height={H} mt={1}>
-        {[0.5, 1].map(f => (
-          <Box key={f} position="absolute" left={0} right={0} style={{ top: H - (H * f) / 1.15, borderTop: `1px solid ${ink.grid}` }}>
-            <Typography variant="caption" style={{ color: ink.muted, position: 'absolute', top: -16 }}>
-              {((max / 1.15) * f).toFixed(0)} min
-            </Typography>
-          </Box>
-        ))}
-        <Box position="absolute" left={0} right={0} bottom={0} style={{ borderTop: `1px solid ${ink.axis}` }} />
-        {runs.map((r, i) => {
-          const h = (r.minutes / max) * H;
-          return (
-            <Box
-              key={r.id}
-              position="absolute"
-              bottom={0}
-              style={{ left: `calc(${i * w}% + ${gap}px)`, width: `calc(${w}% - ${gap * 2}px)`, height: H, cursor: 'default' }}
-              onMouseEnter={() => setHover(i)}
-              onMouseLeave={() => setHover(undefined)}
-            >
-              <Box
-                position="absolute"
-                bottom={0}
-                left="20%"
-                right="20%"
-                style={{
-                  height: h,
-                  background: r.ok ? ink.series : STATUS.critical,
-                  borderRadius: '4px 4px 0 0',
-                  opacity: hover === undefined || hover === i ? 1 : 0.45,
-                }}
-              />
-              {hover === i && (
-                <div className={classes.tooltip} style={{ left: '50%', top: H - h }}>
-                  <b>{r.id}</b> · {r.minutes.toFixed(1)} min · {r.ok ? '✓ success' : '✕ failed'}
-                  <br />
-                  {r.commit}
-                </div>
-              )}
-            </Box>
-          );
-        })}
-      </Box>
-      <div className={classes.legend}>
-        <span><span className={classes.swatch} style={{ background: ink.series }} />Success</span>
-        <span><span className={classes.swatch} style={{ background: STATUS.critical }} />✕ Failed</span>
-      </div>
-    </Box>
-  );
-};

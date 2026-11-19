@@ -6,7 +6,7 @@ import {
 import { TOOLS } from './tools';
 
 /**
- * DevOps tools on an application page (real data in prod; demo numbers only with everesto.demoData).
+ * DevOps tools on an application page — live data from GitHub, SonarQube, ArgoCD, Infisical.
  *  - "Tools" card on Overview: connected / [Add]
  *  - one tab per tool (CI, Quality, CD, Secrets, Monitoring), grouped
  * Only for Components (applications). Tab data is fake.

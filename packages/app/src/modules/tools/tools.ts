@@ -42,7 +42,6 @@ export type Tool = {
 export type ToolState =
   | { kind: 'missing' }
   | { kind: 'connected'; value: string }
-  | { kind: 'error'; value: string; reason: string };
 
 const t = (x: Tool) => x;
 
@@ -111,22 +110,9 @@ export const TOOLS: Tool[] = [
 /** Scanners whose findings feed the Vulnerabilities / Secrets views. */
 export const SECURITY_TOOL_IDS = ['secrets-scan', 'semgrep', 'trivy', 'sast', 'deps', 'dependabot'];
 
-const DUMMY_ERRORS = 'everesto.live/dummy-tool-errors';
-
-const dummyErrors = (entity: Entity): Record<string, string> =>
-  Object.fromEntries(
-    (entity.metadata.annotations?.[DUMMY_ERRORS] ?? '')
-      .split(';')
-      .map(p => p.split('=').map(s => s.trim()))
-      .filter(([id]) => id)
-      .map(([id, reason]) => [id, reason || 'tool not reachable']),
-  );
-
 export const toolState = (entity: Entity, tool: Tool): ToolState => {
   const value = entity.metadata.annotations?.[tool.annotation];
-  if (!value) return { kind: 'missing' };
-  const reason = dummyErrors(entity)[tool.id];
-  return reason ? { kind: 'error', value, reason } : { kind: 'connected', value };
+  return value ? { kind: 'connected', value } : { kind: 'missing' };
 };
 
 export const CI_TOOLS = TOOLS.filter(x => x.stage === 'ci');
