@@ -31,9 +31,15 @@ import { generateKeyPairSync } from 'node:crypto';
 const GH = 'https://api.github.com';
 
 /** Installation token of the GitHub App for an owner (e.g. Everesto-Inc). */
+// ONE provider per config: it caches the GitHub App installation token (~1 h) — a new provider per call
+// minted a fresh token on every request (2 extra GitHub round trips ≈ 0.4 s per click / card).
+const providers = new WeakMap<Config, DefaultGithubCredentialsProvider>();
 export async function githubToken(config: Config, owner: string): Promise<string> {
-  const integrations = ScmIntegrations.fromConfig(config);
-  const provider = DefaultGithubCredentialsProvider.fromIntegrations(integrations);
+  let provider = providers.get(config);
+  if (!provider) {
+    provider = DefaultGithubCredentialsProvider.fromIntegrations(ScmIntegrations.fromConfig(config));
+    providers.set(config, provider);
+  }
   const { token } = await provider.getCredentials({ url: `https://github.com/${owner}` });
   if (!token) throw new Error(`No GitHub App installation for ${owner}`);
   return token;

@@ -13,6 +13,14 @@ app:
     - page:catalog:
         config:
           path: /
+    # Home list: start at the top of the hierarchy (entities) and show ALL of them — the default "Owned"
+    # hid e.g. blackbuck for anyone not in blackbuck-admins (only visible under "Starred").
+    - catalog-filter:catalog/kind:
+        config:
+          initialFilter: domain
+    - catalog-filter:catalog/list:
+        config:
+          initialFilter: all
 
     # Visit tracking records which pages users navigate to and is disabled by default.
     # Enable it to populate the Most Visited and Recently Visited widgets on the Home page.

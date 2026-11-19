@@ -55,17 +55,19 @@ backend:
     # Each plugin gets its own pool. The shared Postgres allows only 30 connections
     # (Infisical uses it too). 2 per plugin × ~13 plugins hit the limit at startup
     # ("remaining connection slots are reserved") → 1 per plugin, 2 for catalog +
-    # scaffolder (parallel queries) ≈ 15 at peak; idle connections closed after 10 s.
+    # scaffolder (parallel queries) ≈ 15 at peak — max unchanged.
+    # Speed: Postgres is ~95 ms away (Oracle → GCP); a NEW TLS connection costs ~0.5 s. Idle connections are
+    # therefore kept 4 min (was 10 s → almost every click reconnected) and the catalog keeps 1 always open.
     knexConfig:
       pool:
         min: 0
         max: 1
-        idleTimeoutMillis: 10000
+        idleTimeoutMillis: 240000
     plugin:
       catalog:
-        knexConfig: { pool: { min: 0, max: 2, idleTimeoutMillis: 10000 } }
+        knexConfig: { pool: { min: 1, max: 2, idleTimeoutMillis: 240000 } }
       scaffolder:
-        knexConfig: { pool: { min: 0, max: 2, idleTimeoutMillis: 10000 } }
+        knexConfig: { pool: { min: 0, max: 2, idleTimeoutMillis: 240000 } }
 
 auth:
   environment: production
@@ -133,3 +135,8 @@ techdocs:
 # Cluster views (Kubernetes tab, ArgoCD status) are served by the everesto backend with the pod's own
 # ServiceAccount, namespace by namespace (least privilege) — the generic Kubernetes plugin needs cluster-wide
 # list rights, so it has no cluster configured here.
+
+everesto:
+  # GitHub access (teams, invites, rulesets, ArgoCD RBAC) reconciled every 30 min — no "Apply" click needed.
+  accessSync:
+    enabled: true

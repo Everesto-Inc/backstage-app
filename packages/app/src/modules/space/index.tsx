@@ -2,7 +2,7 @@ import { createFrontendModule } from '@backstage/frontend-plugin-api';
 import { EntityCardBlueprint, EntityContentBlueprint } from '@backstage/plugin-catalog-react/alpha';
 
 /**
- * DevOps Space pages — DUMMY layout preview (actions only show what they will do).
+ * DevOps Space pages (real data in prod; demo numbers only with everesto.demoData).
  *   Entity  (Domain) → "/" hierarchy: entity → its projects (DevOps Spaces), [Create project]
  *   Project (System) → "/" Pipelines (CI / CD / repos, tool chains, [Edit]),
  *                      Startup Guide · API Docs · Members · Connections
