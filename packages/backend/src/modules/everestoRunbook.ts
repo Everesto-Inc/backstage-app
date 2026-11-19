@@ -89,7 +89,8 @@ ${x.creates.length ? `\n**Creates:**\n\n${x.creates.map(c => `- ${c}`).join('\n'
   return `# ${gitops}
 
 Deployment (CD) of [${repo}](https://github.com/${OWNER}/${repo}), DevOps space **${project}**, managed by Backstage.
-Backstage has **no cluster access**: it writes git and Infisical; an admin runs the commands below on the control plane
+Backstage writes git and Infisical only; ArgoCD creates everything in the cluster from git (app-of-apps), so normally
+nothing has to be run by hand. The commands below are for checking and for emergencies, on the control plane
 (\`ssho control-plane\`). Every command is safe to run again.
 
 ## What runs where

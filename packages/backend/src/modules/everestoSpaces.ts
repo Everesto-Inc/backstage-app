@@ -7,12 +7,12 @@
  *
  * Who: owner (platform-team) or the entity's managers (<entity>-admins).
  */
+import { err } from './everestoCommon';
 import { Config } from '@backstage/config';
 import { githubToken } from './everestoActions';
 import { OWNER, commit, readFile } from './everestoManage';
 
 const CATALOG = 'everesto-catalog';
-const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 /** Suggestions (any name matching SPACE_NAME may be typed instead). */
 export const FLOWERS = [

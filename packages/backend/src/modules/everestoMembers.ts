@@ -9,6 +9,7 @@
  * Who (givableRoles): owner (platform-team) every role, several at once · managers + entity managers: maintainers,
  * developers, viewers · maintainers: developers, viewers · developers / viewers: nobody.
  */
+import { err } from './everestoCommon';
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
 import { OWNER, commit, readFile } from './everestoManage';
@@ -17,7 +18,6 @@ import { findDoc, groupMembers, setGroupMembers } from './everestoYaml';
 export const SPACE_ROLES = ['managers', 'maintainers', 'developers', 'viewers'] as const;
 export type SpaceRole = (typeof SPACE_ROLES)[number];
 const CATALOG = 'everesto-catalog';
-const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 /** Roles the caller may give or take in this space. */
 export function givableRoles(refs: string[], space: string, entityOfSpace: string): SpaceRole[] {

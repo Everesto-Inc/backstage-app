@@ -1,5 +1,5 @@
 import { Raw, explainStatus } from './everestoStatus';
-import { githubProblem } from './everestoInsights';
+import { githubProblem } from './everestoPipeline';
 
 const base: Raw = {
   env: 'dev', repo: 'python-backend', namespace: 'dev-python', clusterReadable: true, gitConfigured: true,

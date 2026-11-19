@@ -60,22 +60,21 @@ export type Insights = {
   images?: { tag: string; at: string; title: string; url: string }[];
 };
 
-/** repo = Component name; for a gitops Resource "<repo>-gitops" → deploy info from <project>-gitops-cd/<app>/. */
-export const insightsTarget = (e: Entity) => {
-  const project = String(e.spec?.system ?? '');
-  const repo = e.metadata.name.replace(/-gitops$/, '');
-  const app = project && repo.startsWith(`${project}-`) ? repo.slice(project.length + 1) : repo;
-  return { repo, project, app };
-};
+/** The CI repo behind a card: the Component itself, or "<repo>" for its CD Resource "<repo>-gitops". */
+export const insightsTarget = (e: Entity) => ({
+  repo: e.metadata.name.replace(/-gitops$/, ''),
+  project: String(e.spec?.system ?? ''),
+});
+
+/** Pipeline data URL of an app (SonarQube key from its annotation; '0' = SonarQube switched off). */
+export const pipelinePath = (e: Entity) =>
+  `/pipeline/${encodeURIComponent(insightsTarget(e).repo)}?sonar=${encodeURIComponent(e.metadata.annotations?.['sonarqube.org/project-key'] ?? '0')}`;
 
 export const useInsights = (e: Entity | undefined, enabled = true) => {
   const api = useEveresto(); // human error messages (session expired, GitHub unreachable, …)
   return useAsyncRetry(async (): Promise<Insights | undefined> => {
     if (!e || !enabled) return undefined;
-    const { repo, project, app } = insightsTarget(e);
-    // SonarQube switched off (annotation absent) → backend skips it, no stale measures
-    const sonar = e.metadata.annotations?.['sonarqube.org/project-key'] ?? '0';
-    return api('GET', `/pipeline/${encodeURIComponent(repo)}?project=${encodeURIComponent(project)}&app=${encodeURIComponent(app)}&sonar=${encodeURIComponent(sonar)}`);
+    return api('GET', pipelinePath(e));
   }, [e?.metadata.name, enabled]);
 };
 

@@ -9,7 +9,7 @@ import EditIcon from '@material-ui/icons/Edit';
 import AccountTreeIcon from '@material-ui/icons/AccountTree';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { useSpaceRole, useIsProjectOwner, useProjectParts } from './data';
+import { useSpaceRole, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { PreviewDialog } from './PreviewDialog';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
@@ -82,7 +82,7 @@ const Metric = ({ label, children }: { label: string; children: React.ReactNode 
   );
 };
 
-const EditTools = ({ entity, tools, onClose, isOwner }: { entity: Entity; tools: Tool[]; onClose: () => void; isOwner: boolean }) => {
+const EditTools = ({ entity, tools, onClose, canRemoveTools }: { entity: Entity; tools: Tool[]; onClose: () => void; canRemoveTools: boolean }) => {
   const initial = Object.fromEntries(tools.map(t => [t.id, toolState(entity, t).kind !== 'missing']));
   const [checked, setChecked] = useState<Record<string, boolean>>(initial);
   const added = tools.filter(t => checked[t.id] && !initial[t.id]).map(t => t.name);
@@ -98,7 +98,7 @@ const EditTools = ({ entity, tools, onClose, isOwner }: { entity: Entity; tools:
       ]}
     >
       {tools.map(t => {
-        const lock = initial[t.id] && !isOwner;
+        const lock = initial[t.id] && !canRemoveTools;
         return (
           <Box key={t.id} display="flex" alignItems="center" style={{ gap: 12 }} py={0.5}>
             <ToolLogo tool={t} size={32} />
@@ -113,8 +113,8 @@ const EditTools = ({ entity, tools, onClose, isOwner }: { entity: Entity; tools:
   );
 };
 
-const PipelineCard = ({ e, project, tools, kind, isOwner }: {
-  e: Entity; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; isOwner: boolean;
+const PipelineCard = ({ e, project, tools, kind, canRemoveTools }: {
+  e: Entity; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; canRemoveTools: boolean;
 }) => {
   const classes = useStyles();
   const [editing, setEditing] = useState(false);
@@ -220,13 +220,13 @@ const PipelineCard = ({ e, project, tools, kind, isOwner }: {
       {editing && !demo && kind === 'cd' && (
         <EditDeploymentDialog repo={e.metadata.name.replace(/-gitops$/, '')} project={project} hasProd={false} onClose={() => setEditing(false)} />
       )}
-      {editing && demo && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} isOwner={isOwner} />}
+      {editing && demo && <EditTools entity={e} tools={tools} onClose={() => setEditing(false)} canRemoveTools={canRemoveTools} />}
     </div>
   );
 };
 
 const Section = ({ title, items, ...rest }: {
-  title: string; items: Entity[]; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; isOwner: boolean;
+  title: string; items: Entity[]; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo'; canRemoveTools: boolean;
 }) => {
   const classes = useStyles();
   if (items.length === 0) return null;
@@ -247,7 +247,6 @@ export const ProjectPipelines = () => {
   const { entity } = useEntity();
   const project = entity.metadata.name;
   const { value, loading, error } = useProjectParts(project);
-  const isOwner = useIsProjectOwner(project);
   const demo = useDemoData();
   const [creating, setCreating] = useState<string | undefined>(); // stack preselected: 'python' | 'repo'
   const [deploying, setDeploying] = useState(false);
@@ -339,9 +338,9 @@ export const ProjectPipelines = () => {
         </Grid>
       </Grid>}
 
-      <Section title="CI pipelines" items={ci} project={project} tools={CI_TOOLS} kind="ci" isOwner={isOwner} />
-      <Section title="CD pipelines" items={cd} project={project} tools={CD_TOOLS} kind="cd" isOwner={isOwner} />
-      <Section title="Repositories" items={repoOnly} project={project} tools={CI_TOOLS.filter(t => t.id === 'code')} kind="repo" isOwner={isOwner} />
+      <Section title="CI pipelines" items={ci} project={project} tools={CI_TOOLS} kind="ci" canRemoveTools={role.maintainer} />
+      <Section title="CD pipelines" items={cd} project={project} tools={CD_TOOLS} kind="cd" canRemoveTools={role.maintainer} />
+      <Section title="Repositories" items={repoOnly} project={project} tools={CI_TOOLS.filter(t => t.id === 'code')} kind="repo" canRemoveTools={role.maintainer} />
       {dialog}
     </Box>
   );

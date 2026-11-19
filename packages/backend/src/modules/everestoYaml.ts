@@ -4,6 +4,7 @@
  * Edits go through the yaml Document API on ONLY the document that changes; every other document of a
  * multi-document file is returned byte-for-byte (comments, order, formatting of hand-edited files survive).
  */
+import { err } from './everestoCommon';
 import { Document, isMap, isSeq, parseAllDocuments, parseDocument } from 'yaml';
 
 type Obj = Record<string, any>;
@@ -56,7 +57,7 @@ export function setGroupMembers(text: string, group: string, change: (m: string[
     if (!isMap(d.get('spec'))) d.set('spec', d.createNode({}));
     d.setIn(['spec', 'members'], node);
   });
-  if (out === undefined) throw Object.assign(new Error(`group ${group} not found in the catalog`), { status: 404 });
+  if (out === undefined) throw err(404, `group ${group} not found in the catalog`);
   return out;
 }
 
@@ -66,7 +67,7 @@ export function setAnnotation(text: string, kind: string, name: string | undefin
     if (value === undefined) d.deleteIn(['metadata', 'annotations', key]);
     else d.setIn(['metadata', 'annotations', key], value);
   });
-  if (out === undefined) throw Object.assign(new Error(`catalog-info.yaml has no ${kind}${name ? ` ${name}` : ''}`), { status: 409 });
+  if (out === undefined) throw err(409, `catalog-info.yaml has no ${kind}${name ? ` ${name}` : ''}`);
   return out;
 }
 
@@ -86,7 +87,7 @@ export const kustomizeTag = (text: string | undefined): string | undefined => {
 /** kustomization.yaml with images[0].newTag := tag (everything else unchanged). */
 export function setKustomizeTag(text: string, tag: string): string {
   const d = parseDocument(text);
-  if (!isSeq(d.get('images'))) throw Object.assign(new Error('kustomization.yaml has no images: section'), { status: 409 });
+  if (!isSeq(d.get('images'))) throw err(409, 'kustomization.yaml has no images: section');
   d.setIn(['images', 0, 'newTag'], tag);
   return d.toString({ lineWidth: 0, flowCollectionPadding: false });
 }

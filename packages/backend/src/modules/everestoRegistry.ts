@@ -9,6 +9,7 @@
  *   apps:
  *     python-backend: orchid      # <repo>: <space>   (<repo>-gitops belongs to the same space)
  */
+import { err } from './everestoCommon';
 import { parseDocument } from 'yaml';
 import { commit, readFile } from './everestoManage';
 import { docs } from './everestoYaml';
@@ -16,7 +17,6 @@ import { docs } from './everestoYaml';
 export const REGISTRY_REPO = 'everesto-catalog';
 export const REGISTRY_FILE = 'platform/apps.yaml';
 const NAME = /^[a-z0-9][a-z0-9-]{0,99}$/;
-const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 /** Pure: registry text → { repo: space } (invalid entries ignored). */
 export function parseRegistry(text: string | undefined): Record<string, string> {

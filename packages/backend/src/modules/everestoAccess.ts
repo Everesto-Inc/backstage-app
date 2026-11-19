@@ -12,6 +12,7 @@
  *   Bypass: the Backstage GitHub App (it commits gitops/tool changes) and org admins (break-glass).
  * Platform repos (domain platform) are never touched.
  */
+import { membersOf } from './everestoCommon';
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
 import { OWNER, commit, readFile } from './everestoManage';
@@ -56,7 +57,7 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
   return systems.map(sys => {
     const name = sys.metadata.name as string;
     const members = Object.fromEntries(ROLES.map(r => [r,
-      ((groups.find(g => g.metadata.name === `${name}-${r}`)?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase()),
+      membersOf(groups.find(g => g.metadata.name === `${name}-${r}`)),
     ])) as Space['members'];
     // entity admins of this space's entity are maintainers here too
     const admins = ((entityAdmins.find(g => g.metadata.name === `${sys.spec?.domain}-admins`)?.spec?.members ?? []) as string[])
@@ -69,7 +70,7 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
     return {
       name,
       members,
-      viewers: ((groups.find(g => g.metadata.name === `${name}-viewers`)?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase()),
+      viewers: membersOf(groups.find(g => g.metadata.name === `${name}-viewers`)),
       sonarProjects: comps.filter(inSpace).map(e => e.metadata?.annotations?.['sonarqube.org/project-key']).filter(Boolean),
       ciRepos: comps.filter(inSpace).map(slugOf).filter(Boolean),
       gitopsRepos: res.filter(e => inSpace(e) && e.spec?.type === 'gitops').map(slugOf).filter(Boolean),

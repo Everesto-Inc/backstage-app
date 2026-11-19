@@ -2,14 +2,14 @@ import { ReactNode } from 'react';
 import { choose } from './choose';
 import { StatusLine, summarize, useStatus } from './StatusChain';
 import { Entity } from '@backstage/catalog-model';
-import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { useEveresto } from './api';
 import { CdActions, RunBuild } from './CdActions';
 import { Box, Grid, Link, Tooltip, Typography, makeStyles } from '@material-ui/core';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
 import RemoveCircleOutline from '@material-ui/icons/RemoveCircleOutline';
 import useAsync from 'react-use/esm/useAsync';
-import { Insights, Run, StepResult, ago, fmtDuration, insightsTarget, nsOf, useInsights } from './insights';
+import { Insights, Run, StepResult, ago, fmtDuration, insightsTarget, nsOf, pipelinePath, useInsights } from './insights';
 import { Meter, STATUS, Sparkline, StatTile } from '../tools/charts';
 
 const useStyles = makeStyles(theme => ({
@@ -198,15 +198,10 @@ export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
 
 /** Fetch insights for many CI pipelines at once (project summary). */
 const useManyInsights = (entities: Entity[]) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
+  const api = useEveresto();
   return useAsync(async () => {
-    const base = await discovery.getBaseUrl('everesto');
-    return Promise.all(entities.map(async e => {
-      const { repo, project, app } = insightsTarget(e);
-      const r = await fetchApi.fetch(`${base}/pipeline/${encodeURIComponent(repo)}?project=${project}&app=${app}`);
-      return r.ok ? ((await r.json()) as Insights) : undefined;
-    }));
+    // one failing app must not hide the others → undefined for that one
+    return Promise.all(entities.map(e => api('GET', pipelinePath(e)).then(r => r as Insights, () => undefined)));
   }, [entities.map(e => e.metadata.name).join(',')]);
 };
 

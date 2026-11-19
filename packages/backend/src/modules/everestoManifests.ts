@@ -6,7 +6,6 @@ export type Env = 'dev' | 'prod';
 export const ns = (nsKey: string, env: Env) => `${env}-${nsKey}`;
 export const NS_KEY = /^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/;
 export const RESERVED_NS = ['backstage', 'argocd', 'system', 'platform', 'default', 'livecode', 'folio', 'maas', 'monitoring', 'awx'];
-export const err = (status: number, message: string) => Object.assign(new Error(message), { status });
 export const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 export type DeploymentInput = {
@@ -254,5 +253,5 @@ spec:
 `;
 
 export const header = (file: string, gitops: string, extra = '') =>
-  `# Apply on the control plane (Backstage has no cluster access):\n#   sudo kubectl apply -f https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd/${file}\n${extra}`;
+  `# Applied automatically by the platform (root app platform-tenants). Manual fallback, control plane:\n#   sudo kubectl apply -f https://raw.githubusercontent.com/${OWNER}/${gitops}/main/argocd/${file}\n${extra}`;
 

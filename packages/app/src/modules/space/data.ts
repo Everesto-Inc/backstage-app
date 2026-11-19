@@ -6,12 +6,13 @@ import useAsync from 'react-use/esm/useAsync';
 
 /**
  * Data model (Backstage catalog):
- *   DevOps Space of an entity = Domain <animal>          (e.g. blackbuck)
- *   Project                   = System <river>, domain = entity   (e.g. seine)
- *   CI application            = Component, system = project, type service|website|library
- *   Repo-only application     = Component, type repository (no CI/CD, e.g. scripts, storage)
- *   CD pipeline               = Resource type gitops (ArgoCD → K3s) or deployment (Ansible/AWX → VMs)
- *   Roles                     = Groups <river>-owners / -maintainers / -developers / -viewers
+ *   Entity            = Domain <animal>               (e.g. blackbuck) — its managers: Group <animal>-admins
+ *   DevOps Space      = System <flower>, domain = entity (e.g. orchid)
+ *   CI application    = Component, system = space, type service|website|library
+ *   Repository only   = Component, type repository (no CI/CD)
+ *   CD (deployment)   = Resource <app>-gitops, type gitops (ArgoCD → K3s)
+ *   Roles             = Groups <space>-managers / -maintainers / -developers / -viewers; owner = platform-team
+ * Which space owns a repo is decided by the app registry (backend), not by the repo's catalog-info.
  */
 
 // owner = platform-team (super admin) — not a per-space role
@@ -80,15 +81,6 @@ export const useMembers = (system: string, reload = 0) => {
   }, [system, reload]);
 };
 
-/** Owner = platform-team (super admin): delete applications, make maintainers, everything. */
-export const useIsProjectOwner = (_system: string) => {
-  const identityApi = useApi(identityApiRef);
-  const { value } = useAsync(() => identityApi.getBackstageIdentity(), []);
-  const refs = value?.ownershipEntityRefs ?? [];
-  return refs.includes('group:default/platform-team'); // owner = super admin
-};
-
-/** maintainers + owners (+ platform-team): create deployments, promote, change tools. */
 /**
  * My role in a space. Owner = platform-team (super admin) · Entity Manager (<entity>-admins) = Manager of every space
  * of that entity · Manager / Maintainer / Developer / Viewer = the space's groups (Manager + Maintainer can be combined).
@@ -108,11 +100,9 @@ export const useSpaceRole = (system: string) => {
   const entityAdmin = !!value?.entity && has(`${value.entity}-admins`); // Entity Manager = Manager of all its spaces
   const manager = superAdmin || entityAdmin || has(`${system}-managers`); // prod, delete apps, members
   const maintainer = manager || has(`${system}-maintainers`); // create CI/repo/CD, deploy dev, delete deployments
-  const developer = maintainer || has(`${system}-developers`); // code via PR, dev secrets, Run build
+  const developer = maintainer || has(`${system}-developers`); // create CI + repositories, code via PR, dev secrets, Run build
   return { loaded: !!value, superAdmin, entityAdmin, manager, maintainer, developer, member: developer || has(`${system}-viewers`) };
 };
 
-export const useIsProjectMaintainer = (system: string) => useSpaceRole(system).maintainer;
-export const useIsProjectManager = (system: string) => useSpaceRole(system).manager;
 
 export const refOf = (e: Entity) => stringifyEntityRef(e);

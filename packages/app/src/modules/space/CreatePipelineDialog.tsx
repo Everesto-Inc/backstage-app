@@ -40,7 +40,7 @@ export const STACKS: Stack[] = [
 
 type Cd = { id: string; name: string; hint: string; logo?: string; soon?: boolean };
 export const CD_OPTIONS: Cd[] = [
-  { id: 'argocd', name: 'ArgoCD (GitOps)', hint: 'container → K3s namespace, folder in <project>-gitops-cd', logo: 'argo' },
+  { id: 'argocd', name: 'ArgoCD (GitOps)', hint: 'container → K3s namespace, via <app>-gitops (Create deployment)', logo: 'argo' },
   { soon: true, id: 'ansible', name: 'Ansible (AWX)', hint: 'deploy to VMs via an AWX job template', logo: 'ansible' },
   { id: 'none', name: 'No deployment', hint: 'build only (library, tool, storage)' },
 ];

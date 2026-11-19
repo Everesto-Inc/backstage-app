@@ -1,6 +1,6 @@
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { InfoCard, Table } from '@backstage/core-components';
-import { Box, Button, Grid, Typography } from '@material-ui/core';
+import { Box, Grid, Typography } from '@material-ui/core';
 import ErrorIcon from '@material-ui/icons/Error';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import { TOOLS, Tool, toolState } from './tools';
@@ -28,10 +28,8 @@ const NotAdded = ({ tool }: { tool: Tool }) => (
   <InfoCard title={<Box display="flex" alignItems="center" style={{ gap: 12 }}><ToolLogo tool={tool} />{`${tool.name} is not set up for this application`}</Box>}>
     <Typography variant="body2" paragraph>{tool.description}.</Typography>
     <Typography variant="body2" paragraph color="textSecondary">
-      Add it from the <b>Tools</b> card on the Overview tab — a template provisions it and opens a pull
-      request with the CI change, the annotation <code>{tool.annotation}</code> and the docs <code>{tool.docsPath}</code>.
+      Maintainers add it with <b>Edit</b> on this application's pipeline card (DevOps Space → Pipelines).
     </Typography>
-    <Button variant="contained" color="primary" disableElevation disabled>Add {tool.name} (preview)</Button>
   </InfoCard>
 );
 
@@ -49,7 +47,6 @@ const ErrorBanner = ({ tool, reason }: { tool: Tool; reason: string }) => (
       <Typography variant="subtitle2">{tool.name} connection error</Typography>
       <Typography variant="body2" color="textSecondary">{reason} — showing last known data.</Typography>
     </Box>
-    <Box ml="auto"><Button variant="outlined" size="small">Reconnect</Button></Box>
   </Box>
 );
 

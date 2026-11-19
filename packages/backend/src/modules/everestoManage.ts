@@ -13,6 +13,7 @@
  * for tool changes) or be in platform-team. The repo's own catalog-info.yaml (read from GitHub, not
  * from the request) decides the project and the SonarQube key.
  */
+import { err } from './everestoCommon';
 import { Config } from '@backstage/config';
 import { gh, githubToken, sonarProvision, sonarRemove } from './everestoActions';
 import { ROLE } from './everestoRoles';
@@ -59,11 +60,11 @@ export async function commit(token: string, repo: string, message: string, files
 /** What the repo says about itself (catalog-info.yaml) — never trust the request for this. */
 export async function appInfo(token: string, repo: string) {
   const info = await readFile(token, repo, 'catalog-info.yaml');
-  if (!info) throw Object.assign(new Error('not a Backstage application (no catalog-info.yaml)'), { status: 404 });
+  if (!info) throw err(404, 'not a Backstage application (no catalog-info.yaml)');
   // The SPACE comes from the platform's app registry — never from the repo itself (anyone who can merge into the
   // repo could otherwise claim another space and use that space's roles). Not registered → nobody but the owner acts.
   const project = await spaceOf(token, repo);
-  if (!project) throw Object.assign(new Error(`${repo} is not registered with a DevOps Space — ask the platform team`), { status: 409 });
+  if (!project) throw err(409, `${repo} is not registered with a DevOps Space — ask the platform team`);
   const c = component(info);
   const sonarKey = c?.annotations['sonarqube.org/project-key'];
   return { info, project, sonarKey, app: repo.startsWith(`${project}-`) ? repo.slice(project.length + 1) : repo };
@@ -119,7 +120,7 @@ export function editCiTools(
     if (want === undefined || want === has[tool]) continue;
     if (want) {
       const anchor = /(\n {6}- name: Build \+ scan image \(Trivy\))/;
-      if (!anchor.test(ci)) throw Object.assign(new Error('ci.yml was changed by hand (no "Build + scan image (Trivy)" step) — add the stage by hand'), { status: 409 });
+      if (!anchor.test(ci)) throw err(409, 'ci.yml was changed by hand (no "Build + scan image (Trivy)" step) — add the stage by hand');
       ci = ci.replace(anchor, `\n${STEP[tool](sha, version)}$1`);
       catalog = setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY[tool], ANNOTATION_VALUE[tool](repo));
     } else {
@@ -137,11 +138,11 @@ export async function setTools(config: Config, repo: string, change: ToolChange,
   const token = await githubToken(config, OWNER);
   const { info, project, sonarKey } = await appInfo(token, repo);
   if (!allowed(refs, project, [...ROLE.CREATE])) {
-    throw Object.assign(new Error(`only maintainers/managers of ${project} can change its tools`), { status: 403 });
+    throw err(403, `only maintainers/managers of ${project} can change its tools`);
   }
   let ci = await readFile(token, repo, '.github/workflows/ci.yml');
   const loop = ci?.match(/Everesto-Inc\/loop\/stages\/install@([0-9a-f]{40}) # (\S+)/);
-  if (!ci || !loop) throw Object.assign(new Error('pipeline is not built on Loop — edit ci.yml by hand'), { status: 409 });
+  if (!ci || !loop) throw err(409, 'pipeline is not built on Loop — edit ci.yml by hand');
   const [, sha, version] = loop;
   const stack = ci.match(/stack: (\w+)/)?.[1] ?? 'python';
   let catalog = info;
@@ -195,9 +196,9 @@ export async function deleteApp(
 ) {
   const token = await githubToken(config, OWNER);
   const { info, project, sonarKey } = await appInfo(token, repo);
-  if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw Object.assign(new Error(`${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`), { status: 403 });
+  if (PROTECTED_SYSTEMS.includes(project) || isProtected(info)) throw err(403, `${repo} is part of the platform (${project}) — it cannot be deleted from Backstage`);
   if (!allowed(refs, project, [...ROLE.PROD])) { // managers (incl. entity managers) + owner
-    throw Object.assign(new Error(`only managers of ${project} (or the owner) can delete applications`), { status: 403 });
+    throw err(403, `only managers of ${project} (or the owner) can delete applications`);
   }
   const done: string[] = [];
   const warn: string[] = [];

@@ -2,7 +2,8 @@ import { gh } from './everestoActions';
 import { Size, guardrails } from './everestoManifests';
 import { appNamespaces } from './everestoYaml';
 import { OWNER, commit, readFile } from './everestoManage';
-import { Env, RESERVED_NS, appProject, application, err, secretStore } from './everestoManifests';
+import { Env, RESERVED_NS, appProject, application, secretStore } from './everestoManifests';
+import { err } from './everestoCommon';
 import { Config } from '@backstage/config';
 import { infisical } from './everestoInfisical';
 // ---------- tenants (app-of-apps): Backstage writes the ArgoCD objects to git, ArgoCD creates them ----------

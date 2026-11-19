@@ -1,6 +1,7 @@
 /** Infisical client for deployments: one project <repo>-gitops per application, identity eso-<repo>. */
 import { Config } from '@backstage/config';
-import { Env, err } from './everestoManifests';
+import { Env } from './everestoManifests';
+import { err } from './everestoCommon';
 // ---------- Infisical ----------
 
 export async function infisical(config: Config) {

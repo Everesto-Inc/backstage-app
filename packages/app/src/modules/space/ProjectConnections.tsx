@@ -3,7 +3,7 @@ import { useEntity } from '@backstage/plugin-catalog-react';
 import { Box, Button, TextField, Typography, makeStyles } from '@material-ui/core';
 import LockIcon from '@material-ui/icons/Lock';
 import CheckCircle from '@material-ui/icons/CheckCircle';
-import { useIsProjectOwner } from './data';
+import { useSpaceRole } from './data';
 import { PreviewDialog } from './PreviewDialog';
 import { TOOLS, Tool } from '../tools/tools';
 import { ToolLogo } from '../tools/ToolLogo';
@@ -18,7 +18,7 @@ import { STATUS } from '../tools/charts';
  *               The project owner connects it here: URL + token, written straight into the
  *               project's Infisical (write-only, never shown again, never stored by Backstage).
  */
-// DUMMY: which project-level tools seine already connected
+// design preview (tab hidden): which tenant-licensed tools a space has connected
 const CONNECTED_PROJECT_TOOLS = ['deps'];
 
 const useStyles = makeStyles(theme => ({
@@ -37,7 +37,7 @@ export const ProjectConnections = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const project = entity.metadata.name;
-  const isOwner = useIsProjectOwner(project);
+  const isOwner = useSpaceRole(project).superAdmin;
   const [connecting, setConnecting] = useState<Tool | undefined>();
 
   const section = (level: 'none' | 'platform' | 'project', title: string, hint: string) => (

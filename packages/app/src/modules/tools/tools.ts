@@ -92,7 +92,7 @@ export const TOOLS: Tool[] = [
   // ── CD ──────────────────────────────────────────────────────────────────
   t({ id: 'cd', stage: 'cd', name: 'ArgoCD', tab: 'CD', group: 'deployment', logo: 'argo',
     connection: 'platform', licence: 'free', annotation: 'argocd/app-name',
-    description: "Deploys the project's gitops-cd folder for this app to K3s",
+    description: 'Deploys <app>-gitops to K3s (manual Sync)',
     templateRef: 'template:default/add-argocd', docsPath: 'docs/argocd.md' }),
   t({ id: 'config', stage: 'cd', name: 'Ansible', tab: 'Config', group: 'deployment', logo: 'ansible',
     connection: 'project', licence: 'free', annotation: 'everesto.live/awx-job-template',

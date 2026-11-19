@@ -2,12 +2,9 @@ import { ReactNode } from 'react';
 import { useEntity, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { Progress } from '@backstage/core-components';
 import { Box, Button, Grid, Typography, makeStyles } from '@material-ui/core';
-import MenuBookIcon from '@material-ui/icons/MenuBook';
 import CodeIcon from '@material-ui/icons/Code';
 import OpenInNew from '@material-ui/icons/OpenInNew';
 import { useProjectParts } from './data';
-import { TOOLS } from '../tools/tools';
-import { ToolLogo } from '../tools/ToolLogo';
 
 const useStyles = makeStyles(theme => ({
   card: {
@@ -38,7 +35,7 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
-const DocCard = ({ icon, title, text, action }: { icon: ReactNode; title: ReactNode; text: string; action?: string }) => {
+const DocCard = ({ icon, title, text, action }: { icon: ReactNode; title: ReactNode; text: string; action?: { label: string; href: string } }) => {
   const classes = useStyles();
   return (
     <div className={classes.card}>
@@ -47,61 +44,30 @@ const DocCard = ({ icon, title, text, action }: { icon: ReactNode; title: ReactN
         <b>{title}</b>
         <Typography variant="body2" color="textSecondary">{text}</Typography>
       </Box>
-      {action && <Button size="small" color="primary" endIcon={<OpenInNew fontSize="small" />}>{action}</Button>}
+      {action && <Button size="small" color="primary" href={action.href} endIcon={<OpenInNew fontSize="small" />}>{action.label}</Button>}
     </div>
   );
 };
 
-/** Project → Tech Docs: each application's TechDocs + how-to per tool. */
-export const ProjectTechDocs = () => {
-  const { entity } = useEntity();
-  const { value, loading } = useProjectParts(entity.metadata.name);
-  if (loading) return <Progress />;
-  const apps = [...(value?.ci ?? []), ...(value?.repoOnly ?? [])];
-  return (
-    <Box>
-      <Typography variant="h6" gutterBottom>Applications</Typography>
-      <Grid container spacing={2}>
-        {apps.map(e => (
-          <Grid item xs={12} sm={6} md={4} key={e.metadata.name}>
-            <DocCard
-              icon={<MenuBookIcon color="primary" />}
-              title={<EntityRefLink entityRef={e}>{e.metadata.name}</EntityRefLink>}
-              text="Architecture, runbook and ADRs — from the repo's docs/ folder (TechDocs)"
-              action="Read"
-            />
-          </Grid>
-        ))}
-      </Grid>
-      <Box mt={4}><Typography variant="h6" gutterBottom>Tools — how to use them in your pipelines</Typography></Box>
-      <Grid container spacing={2}>
-        {TOOLS.map(t => (
-          <Grid item xs={12} sm={6} md={4} key={t.id}>
-            <DocCard icon={<ToolLogo tool={t} size={32} />} title={t.name} text={`${t.docsPath} — setup, pipeline step, troubleshooting`} action="Read" />
-          </Grid>
-        ))}
-      </Grid>
-    </Box>
-  );
-};
-
-/** Project → Startup Guide: first day for a new member, step by step. */
+/** Space → Startup Guide: a new member's first day, step by step — every link goes somewhere real. */
 export const ProjectStartupGuide = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const p = entity.metadata.name;
-  const steps = [
-    { t: 'Accept your invitations', d: `GitHub org Everesto-Inc + team ${p}-developers (email invite)`, a: 'Open GitHub' },
-    { t: 'Sign in to Backstage with GitHub', d: 'Your role in this space is applied automatically', a: undefined },
-    { t: 'Clone an application', d: `git clone git@github.com:Everesto-Inc/${p}-java-backend.git`, a: 'Copy' },
-    { t: 'Run it locally', d: 'See the app’s README — secrets come from Infisical (infisical run -- ./gradlew bootRun)', a: 'Open README' },
-    { t: 'Open your first pull request', d: 'CI runs build, tests, SonarQube, Fortify, Nexus IQ — all must pass', a: 'Pipelines' },
-    { t: 'Merge → deployed', d: `CI bumps the image tag in ${p}-gitops-cd → ArgoCD deploys to namespace ${p}`, a: 'CD status' },
+  const steps: { t: string; d: string; a?: { label: string; href: string } }[] = [
+    { t: 'Accept your GitHub invitation', d: `Organisation Everesto-Inc with your ${p} team — sent by email when you were added in Members`, a: { label: 'Open invitation', href: 'https://github.com/orgs/Everesto-Inc/invitation' } },
+    { t: 'Sign in to Backstage with GitHub', d: 'Your role in this space applies automatically (GitHub, ArgoCD and SonarQube follow within 30 minutes)' },
+    { t: 'Pick or create an application', d: 'Pipelines tab: open an existing app, or Create pipeline (developers and up) — it creates the repo, CI, Dockerfile and docs', a: { label: 'Pipelines', href: `/catalog/default/system/${p}` } },
+    { t: 'Clone it and run it locally', d: 'git clone git@github.com:Everesto-Inc/<app>.git — the README of the app explains how to run it' },
+    { t: 'Open a pull request', d: 'CI runs tests, secret scan (Gitleaks), image scan (Trivy) and, if switched on, Semgrep and SonarQube. main needs 1 approval from someone else; CI changes need a maintainer' },
+    { t: 'Merge → new image', d: 'Each merge builds ghcr.io/everesto-inc/<app>:sha-… — CI never deploys' },
+    { t: 'Deploy to dev', d: 'Maintainers: CD card → Deploy → pick the build → Sync in ArgoCD. The CD tab → Status shows each step and what to do', a: { label: 'ArgoCD', href: 'https://argocd.everesto.live' } },
+    { t: 'Promote to prod', d: 'Managers: Promote to prod opens a pull request in <app>-gitops; a manager approves, then Sync in ArgoCD' },
   ];
   return (
     <Box maxWidth={900}>
       <Typography variant="h6">Startup guide · {entity.metadata.title ?? p}</Typography>
-      <Typography variant="body2" color="textSecondary" paragraph>From zero to your first deployment.</Typography>
+      <Typography variant="body2" color="textSecondary" paragraph>From invitation to your first deployment.</Typography>
       {steps.map((s, i) => (
         <div key={s.t} className={classes.step}>
           <div className={classes.num}>{i + 1}</div>
@@ -109,7 +75,7 @@ export const ProjectStartupGuide = () => {
             <b>{s.t}</b>
             <Typography variant="body2" color="textSecondary" style={{ wordBreak: 'break-word' }}>{s.d}</Typography>
           </Box>
-          {s.a ? <Button size="small" variant="outlined" color="primary">{s.a}</Button> : <span />}
+          {s.a ? <Button size="small" variant="outlined" color="primary" href={s.a.href} {...(s.a.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}>{s.a.label}</Button> : <span />}
         </div>
       ))}
     </Box>
@@ -132,7 +98,7 @@ export const ProjectApiDocs = () => {
             icon={<CodeIcon color="primary" />}
             title={<EntityRefLink entityRef={a}>{a.metadata.name}</EntityRefLink>}
             text={`${String(a.spec?.type ?? '')} · ${a.metadata.description ?? ''}`}
-            action="Open spec"
+            action={{ label: 'Open spec', href: `/catalog/${a.metadata.namespace ?? 'default'}/api/${a.metadata.name}/definition` }}
           />
         </Grid>
       ))}
