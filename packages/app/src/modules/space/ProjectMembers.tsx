@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { useEveresto } from './api';
+import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import { useEntity, EntityRefLink } from '@backstage/plugin-catalog-react';
 import { Progress, ResponseErrorPanel } from '@backstage/core-components';
 import {
@@ -59,8 +60,6 @@ export const ProjectMembers = () => {
   const project = entity.metadata.name;
   const [reload, setReload] = useState(0);
   const { value, loading, error } = useMembers(project, reload);
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const alertApi = useApi(alertApiRef);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ done: string[]; warn: string[] } | undefined>();
@@ -74,16 +73,11 @@ export const ProjectMembers = () => {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('developers');
 
+  const api = useEveresto();
   const call = async (path: string, body: unknown) => {
     setBusy(true);
     try {
-      const base = await discovery.getBaseUrl('everesto');
-      const res = await fetchApi.fetch(`${base}/spaces/${project}/${path}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setResult(json);
+      setResult(await api('POST', `/spaces/${project}/${path}`, body));
       // the catalog was refreshed by the backend; give it a few seconds, then reload the list
       setTimeout(() => setReload(r => r + 1), 4000);
     } catch (e: any) {

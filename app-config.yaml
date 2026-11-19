@@ -42,7 +42,8 @@ app:
     - entity-content:catalog/project-startup
     - entity-content:catalog/project-apis
     - entity-content:catalog/project-members
-    - entity-content:catalog/project-connections
+    # Connections (tenant-licensed tools: Fortify, Nexus IQ …) is a design preview only — hidden until it is real.
+    - entity-content:catalog/project-connections: false
 
     # SonarQube plugin: its card is shown inside our Quality tab instead of its own tab/card
     - entity-content:sonarqube/entity: false

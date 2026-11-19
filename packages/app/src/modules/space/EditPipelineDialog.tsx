@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useEveresto } from './api';
 import { Entity, stringifyEntityRef } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import {
   Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
@@ -25,8 +26,6 @@ export const SWITCHABLE: Record<string, 'sonarqube' | 'semgrep' | 'dependabot'> 
 const ALWAYS_ON = ['secrets-scan', 'trivy', 'registry'];
 
 export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { entity: Entity; onClose: () => void; preset?: { id: string; on: boolean }; repoOnly?: boolean }) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const catalogApi = useApi(catalogApiRef);
   const alertApi = useApi(alertApiRef);
   const navigate = useNavigate();
@@ -53,15 +52,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
     .map(([id, key]) => ({ id, key, on: checked[id] }));
   const removingSonar = changes.some(c => c.key === 'sonarqube' && !c.on);
 
-  const call = async (path: string, body: unknown) => {
-    const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}/${path}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-    return json;
-  };
+  const api = useEveresto();
+  const call = (path: string, body: unknown) => api('POST', `/apps/${encodeURIComponent(repo)}/${path}`, body);
 
   const save = async () => {
     setBusy(true);
@@ -124,7 +116,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
           );
         })}
         {repoOnly && <Typography variant="body2" color="textSecondary">Repository only — no CI pipeline, no tools.</Typography>}
-        {!canEdit && !repoOnly && <Typography variant="body2" color="textSecondary">Only owners and maintainers of {project} can change tools.</Typography>}
+        {!canEdit && !repoOnly && <Typography variant="body2" color="textSecondary">Only maintainers and managers of {project} can change tools.</Typography>}
         {changes.length > 0 && (
           <Box mt={2}>
             <Typography variant="body2" paragraph style={{ marginBottom: 4 }}>Saving will:</Typography>

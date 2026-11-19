@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { alertApiRef, discoveryApiRef, fetchApiRef, identityApiRef, useApi } from '@backstage/core-plugin-api';
+import { useEveresto } from './api';
+import { alertApiRef, identityApiRef, useApi } from '@backstage/core-plugin-api';
 import { Box, Button, Typography } from '@material-ui/core';
 import useAsync from 'react-use/esm/useAsync';
 import { STATUS } from '../tools/charts';
@@ -12,22 +13,17 @@ type Report = { dryRun: boolean; actions: string[]; warnings: string[] };
 
 export const AccessSyncCard = () => {
   const identityApi = useApi(identityApiRef);
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const alertApi = useApi(alertApiRef);
   const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<Report | undefined>();
+  const api = useEveresto();
   if (!refs.includes('group:default/platform-team')) return null;
 
   const run = async (dryRun: boolean) => {
     setBusy(true);
     try {
-      const base = await discovery.getBaseUrl('everesto');
-      const res = await fetchApi.fetch(`${base}/access/sync?dryRun=${dryRun ? '1' : '0'}`, { method: 'POST' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setReport(json);
+      setReport(await api('POST', `/access/sync?dryRun=${dryRun ? '1' : '0'}`));
     } catch (e: any) { alertApi.post({ message: `Access sync failed: ${e.message}`, severity: 'error' }); } finally { setBusy(false); }
   };
 

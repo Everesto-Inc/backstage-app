@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography,
 } from '@material-ui/core';
@@ -8,6 +8,7 @@ import { STATUS } from '../tools/charts';
 import { CmdBox } from './CreateDeploymentDialog';
 import { ago } from './insights';
 import { useSpaceRole } from './data';
+import { useEveresto } from './api';
 
 export type SetupStep = { n: number; env: 'once' | 'dev' | 'prod'; title: string; cmd: string; creates: string[]; explain: string };
 
@@ -28,20 +29,6 @@ export const SetupSteps = ({ steps }: { steps: SetupStep[] }) => (
 
 /** Real CD actions on a deployment card: Deploy (dev), Promote to prod. Delete is in EditDeploymentDialog. */
 type Build = { tag: string; at: string; title: string; url: string };
-
-const useEveresto = () => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
-  return async (method: 'GET' | 'POST', path: string, body?: unknown) => {
-    const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}${path}`, {
-      method, headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined,
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-    return json;
-  };
-};
 
 const useRoles = (project: string) => {
   const r = useSpaceRole(project); // includes entity managers
@@ -196,13 +183,13 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
   const newLogin = async () => {
     setBusy(true);
     try { setEsoCmd((await call('POST', `/apps/${repo}/deployment/eso-login`)).cmd); } catch (e: any) {
-      alertApi.post({ message: `New ESO login failed: ${e.message}`, severity: 'error' });
+      alertApi.post({ message: `Renew cluster access failed: ${e.message}`, severity: 'error' });
     } finally { setBusy(false); }
   };
   const rows: [string, string, boolean][] = [
     ['ArgoCD', `active — dev-${repo}${hasProd ? ` / prod-${repo}` : ''}, manual sync`, true],
     ['Ansible', 'not used — excluded while ArgoCD deploys this app', false],
-    ['Infisical', `always on — project ${gitops} → ESO → Secret ${repo}`, true],
+    ['Infisical', `always on — Infisical project ${gitops} → Secret ${repo} in the cluster`, true],
     ['Grafana', 'coming later', false],
   ];
   const del = async () => {
@@ -229,15 +216,15 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
             ))}
             <Box mt={3} pt={2} style={{ borderTop: '1px solid rgba(128,128,128,0.25)' }}>
               <Typography variant="subtitle2">Setup commands (control plane) — also in the Tech Docs tab of {gitops}</Typography>
-              <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never shown — the ESO login is managed automatically (“New ESO login” rotates it).</Typography>
+              <Typography variant="caption" color="textSecondary">Re-running them is safe. Secret values are never shown. Cluster access to secrets is managed automatically (“Renew cluster access” replaces it).</Typography>
               <SetupSteps steps={setup ?? []} />
               <Box mt={2} display="flex" alignItems="center" style={{ gap: 12 }}>
-                <Button size="small" variant="outlined" disabled={busy || !roles.maintainer} onClick={newLogin}>New ESO login</Button>
-                <Typography variant="caption" color="textSecondary">rotates the login of eso-{repo} in Infisical — applied automatically</Typography>
+                <Button size="small" variant="outlined" disabled={busy || !roles.maintainer} onClick={newLogin}>Renew cluster access</Button>
+                <Typography variant="caption" color="textSecondary">replaces the cluster's login for this app's secrets — applied automatically within 5 min</Typography>
               </Box>
               {esoCmd && (
                 <>
-                  <CmdBox title={`✓ New login for eso-${repo} stored in Infisical — ESO picks it up within 5 minutes (nothing to run)`} cmd={esoCmd} />
+                  <CmdBox title={`✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status.`} cmd={esoCmd} />
                 </>
               )}
             </Box>
@@ -247,7 +234,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
                 <Typography variant="body2" color="textSecondary" paragraph>
                   Deletes the GitHub repo <b>{gitops}</b>, its catalog entry, the Infisical project <b>{gitops}</b> (all its secrets)
                   and the identity eso-{repo}. Kept: the CI application <b>{repo}</b> and its images. You get the kubectl command that
-                  removes dev + prod from the cluster (apps, secret stores, ESO login secret).
+                  removes dev + prod from the cluster (the apps and their access to secrets).
                   Type <b>{gitops}</b> to confirm.
                 </Typography>
                 <Box display="flex" style={{ gap: 12 }}>
@@ -257,7 +244,7 @@ export const EditDeploymentDialog = ({ repo, project, hasProd, onClose, onDelete
                 </Box>
               </Box>
             ) : (
-              <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>Only owners and maintainers of {project} can delete deployments.</Typography>
+              <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>Only maintainers and managers of {project} can delete deployments.</Typography>
             )}
           </>
         )}

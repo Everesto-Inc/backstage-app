@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { useEveresto } from './api';
 import { Entity } from '@backstage/catalog-model';
-import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, Typography } from '@material-ui/core';
 import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 import { STATUS, StatTile } from '../tools/charts';
 import { insightsTarget, nsOf } from './insights';
+import { StatusChain } from './StatusChain';
 
 /**
  * Deployment → CD tab: live cluster view of dev + prod (ArgoCD status, deployment, pods, warnings, logs).
@@ -33,19 +34,12 @@ const box = { p: 2, borderRadius: 12, style: { border: '1px solid rgba(128,128,1
 const row = { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14 } as const;
 
 export const ClusterTab = ({ entity }: { entity: Entity }) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const repo = insightsTarget(entity).repo;
 
   const [logs, setLogs] = useState<{ env: string; pod: string; previous: boolean; text?: string; error?: string } | undefined>();
 
-  const get = async (path: string) => {
-    const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}${path}`);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-    return json;
-  };
+  const api = useEveresto();
+  const get = (path: string) => api('GET', `/apps/${encodeURIComponent(repo)}${path}`);
   const data = useAsyncRetry(async (): Promise<Data> => get('/k8s'), [repo]);
   const openLogs = async (env: string, pod: string, previous = false) => {
     setLogs({ env, pod, previous });
@@ -62,6 +56,9 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
 
   return (
     <Box>
+      <Typography variant="h5" style={{ marginBottom: 8 }}>Status</Typography>
+      <StatusChain entity={entity} />
+      <Typography variant="h5" style={{ margin: '24px 0 8px' }}>Cluster details</Typography>
       <Box display="flex" alignItems="center" mb={1}>
         <Typography variant="body2" color="textSecondary">Live, read-only · only {nsOf(entity, 'dev')} / {nsOf(entity, 'prod')} · refreshed when you open the tab</Typography>
         <Box ml="auto"><Button size="small" onClick={data.retry}>Refresh</Button></Box>

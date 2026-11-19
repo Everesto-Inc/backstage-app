@@ -24,7 +24,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   viewers: 'Viewer',
 };
 
-export const useProjects = (domain: string) => {
+export const useProjects = (domain: string, reload = 0) => {
   const catalogApi = useApi(catalogApiRef);
   return useAsync(async () => {
     const systems = await catalogApi.getEntities({
@@ -37,7 +37,7 @@ export const useProjects = (domain: string) => {
       system: sys,
       parts: parts.items.filter(p => p.spec?.system === sys.metadata.name),
     }));
-  }, [domain]);
+  }, [domain, reload]);
 };
 
 export const useProjectParts = (system: string) => {

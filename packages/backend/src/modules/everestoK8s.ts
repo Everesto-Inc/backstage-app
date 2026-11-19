@@ -41,6 +41,27 @@ async function get(path: string): Promise<any | undefined> {
   });
 }
 
+/** GET with the HTTP status (0 = no cluster / network error) — lets callers tell 'forbidden' from 'not found'. */
+export async function k8sGet(path: string): Promise<{ status: number; json?: any }> {
+  const k = config();
+  if (!k) return { status: 0 };
+  const server = k.getCurrentCluster()!.server;
+  const opts: https.RequestOptions = {};
+  await k.applyToHTTPSOptions(opts);
+  return new Promise(resolve => {
+    const req = https.request(`${server}${path}`, { ...opts, method: 'GET', timeout: 5000 }, res => {
+      let body = '';
+      res.on('data', c => { body += c; });
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode ?? 0, json: res.statusCode === 200 ? JSON.parse(body) : undefined }); } catch { resolve({ status: 0 }); }
+      });
+    });
+    req.on('error', () => resolve({ status: 0 }));
+    req.on('timeout', () => { req.destroy(); resolve({ status: 0 }); });
+    req.end();
+  });
+}
+
 export type ArgoStatus = {
   exists: boolean;
   sync?: string;        // Synced | OutOfSync | Unknown

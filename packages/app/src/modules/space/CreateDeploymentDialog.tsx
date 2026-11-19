@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { StatusChainOf } from './StatusChain';
+import { useEveresto } from './api';
 import { Entity } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import {
   Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid,
   IconButton, MenuItem, TextField, Tooltip, Typography,
@@ -56,8 +58,6 @@ const Rows = ({ title, hint, rows, setRows, secret }: { title: string; hint: str
 export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   project: string; apps: Entity[]; open: boolean; onClose: () => void;
 }) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const alertApi = useApi(alertApiRef);
   const candidates = apps.filter(a => a.metadata.annotations?.['everesto.live/image']);
   const [repo, setRepo] = useState('');
@@ -76,21 +76,14 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const infisical = TOOLS.find(t => t.id === 'secrets')!;
   const valid = repo && [...secrets, ...config].every(r => !r.name || VAR.test(r.name));
 
+  const api = useEveresto();
   const create = async () => {
     setBusy(true);
     try {
-      const base = await discovery.getBaseUrl('everesto');
-      const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}/deployment`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
-          port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, nsKey: key,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      setResult(json);
+      setResult(await api('POST', `/apps/${encodeURIComponent(repo)}/deployment`, {
+        secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
+        port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, nsKey: key,
+      }));
     } catch (e: any) {
       alertApi.post({ message: `Create deployment failed: ${e.message}`, severity: 'error' });
     } finally { setBusy(false); }
@@ -107,17 +100,19 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
               {result.done.map(d => <li key={d}>{d}</li>)}
             </Box>
-            <Typography variant="subtitle2" style={{ marginTop: 16 }}>Run on the control plane (<code>ssho control-plane</code>), in this order — Backstage has no cluster access. Also available later: Edit deployment and the Tech Docs tab of {repo}-gitops.</Typography>
-            {result.commands.map(c => <CmdBox key={c.title} {...c} />)}
-            {result.commands.some(c => c.secret) && (
-              <Typography variant="body2" style={{ color: STATUS.critical, marginTop: 12 }}>
-                The client secret is shown only now and is stored nowhere — copy it before closing. Lost it? Edit deployment → “New ESO login”.
+            {result.commands.length > 0 && (
+              <>
+                <Typography variant="subtitle2" style={{ marginTop: 16 }}>One-time platform step (owner, on the control plane)</Typography>
+                {result.commands.map(c => <CmdBox key={c.title} {...c} />)}
+              </>
+            )}
+            <Typography variant="subtitle2" style={{ margin: '16px 0 8px' }}>Live status — updates by itself (you can close this; the same view is in the CD tab)</Typography>
+            <StatusChainOf repo={repo} project={project} />
+            {result.infisicalUrl && (
+              <Typography variant="body2" color="textSecondary" style={{ marginTop: 8 }}>
+                Secret values: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev, or the Secrets tab.
               </Typography>
             )}
-            <Typography variant="body2" color="textSecondary" style={{ marginTop: 16 }}>
-              Then in ArgoCD: <b>dev-{repo}</b> → <b>Sync</b>. Later: <b>Deploy</b> a newer build, <b>Promote to prod</b> (creates prod-{key} on first use).
-              {result.infisicalUrl && <> Secrets: <a href={result.infisicalUrl} target="_blank" rel="noopener">Infisical {repo}-gitops</a> → dev.</>}
-            </Typography>
           </>
         ) : (
           <>
@@ -128,7 +123,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
             </Box>
 
             <TextField select fullWidth variant="outlined" margin="dense" label="CI application (its image is deployed)" value={repo}
-              onChange={e => setRepo(e.target.value)} helperText={candidates.length ? 'Applications of this project that build an image and have no deployment yet' : 'No CI application with an image in this project yet'}>
+              onChange={e => setRepo(e.target.value)} helperText={candidates.length ? 'Applications of this space that build an image and have no deployment yet' : 'No CI application with an image in this project yet'}>
               {candidates.map(a => <MenuItem key={a.metadata.name} value={a.metadata.name}>{a.metadata.name} — {a.metadata.annotations?.['everesto.live/image']}</MenuItem>)}
             </TextField>
 
@@ -158,9 +153,9 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               <Box mt={2}>
                 <Typography variant="body2">Creates, in this order (stops before git if Infisical fails):</Typography>
                 <Box component="ol" pl={3} m={0} style={{ lineHeight: 1.7, fontSize: 14 }}>
-                  <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above + read-only identity eso-{repo}</li>
+                  <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above (+ a read-only login for the cluster)</li>
                   <li>public repo <b>Everesto-Inc/{repo}-gitops</b> — apps/dev with the newest image of {repo} (no secret values)</li>
-                  <li>kubectl commands for you: ArgoCD project <b>{project}</b> + app <b>dev-{repo}</b>, secret store</li>
+                  <li>ArgoCD app <b>dev-{repo}</b> + its cluster access to secrets — automatic (~3 min), then you click <b>Sync</b></li>
                 </Box>
               </Box>
             )}

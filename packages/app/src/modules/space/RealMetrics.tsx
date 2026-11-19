@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { StatusLine, summarize, useStatus } from './StatusChain';
 import { Entity } from '@backstage/catalog-model';
 import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
 import { CdActions, RunBuild } from './CdActions';
@@ -139,12 +140,15 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
 export const RealCdMetrics = ({ entity }: { entity: Entity }) => {
   const c = useStyles();
   const { value: d, loading, retry } = useInsights(entity);
+  const status = useStatus(entity); // plain-language status chain (falls back to the ArgoCD badge)
   const project = String(entity.spec?.system ?? '');
   if (loading && !d) return <Box px={3} pb={2}><Muted>Loading…</Muted></Box>;
   const repo = insightsTarget(entity).repo;
   const dev = d?.envs?.dev;
   const prod = d?.envs?.prod;
   const argoBadge = (e: 'dev' | 'prod') => {
+    const st = status.value?.find(x => x.env === e);
+    if (st && summarize(st)) return <StatusLine env={st} />;
     const a = d?.argo?.[e];
     if (a === undefined || a === null) return null; // no cluster access (local) → no badge
     if (!a.exists) return <Box mt={0.5}><Muted>ArgoCD app {e}-{repo} not created yet</Muted></Box>;

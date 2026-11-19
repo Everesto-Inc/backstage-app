@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import useAsync from 'react-use/esm/useAsync';
+import { useSpaceRole } from '../space/data';
 import { useEntity } from '@backstage/plugin-catalog-react';
-import { identityApiRef, useApi } from '@backstage/core-plugin-api';
 import { InfoCard } from '@backstage/core-components';
 import {
   Box,
@@ -15,7 +14,7 @@ import {
 } from '@material-ui/core';
 import CheckCircle from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { CD_TOOLS, CI_TOOLS, Tool, ToolState, canRemoveTools, toolState } from './tools';
+import { CD_TOOLS, CI_TOOLS, Tool, ToolState, toolState } from './tools';
 import { STATUS } from './charts';
 import { ToolLogo } from './ToolLogo';
 import { EditPipelineDialog, SWITCHABLE } from '../space/EditPipelineDialog';
@@ -115,9 +114,8 @@ const CdToolsCard = () => {
 const CiToolsCard = () => {
   const classes = useStyles();
   const { entity } = useEntity();
-  const identityApi = useApi(identityApiRef);
-  const { value: identity } = useAsync(() => identityApi.getBackstageIdentity(), []);
-  const isOwner = canRemoveTools(entity, identity?.ownershipEntityRefs ?? []);
+  // same rule as the backend (setTools): maintainers + managers (+ entity managers, owner)
+  const isOwner = useSpaceRole(String(entity.spec?.system ?? '')).maintainer;
   const [action, setAction] = useState<Action | undefined>();
   const demo = useDemoData();
   // real Add / Remove (Loop pipelines): SonarQube, Semgrep, Dependabot → same dialog as Edit pipeline
@@ -171,7 +169,7 @@ const CiToolsCard = () => {
       ))}
       {!isOwner && (
         <Typography variant="caption" color="textSecondary">
-          Only owners of this space can remove tools.
+          Only maintainers and managers of this space can remove tools.
         </Typography>
       )}
 
@@ -210,7 +208,7 @@ const CiToolsCard = () => {
                   <>
                     <li>opens a PR removing the CI step, the annotation and the docs page</li>
                     <li>after merge: revokes the token in Infisical, archives the {action.tool.name} project</li>
-                    <li>owners of the space only</li>
+                    <li>maintainers and managers of the space only</li>
                   </>
                 )}
               </Box>

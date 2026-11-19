@@ -133,13 +133,5 @@ export const toolState = (entity: Entity, tool: Tool): ToolState => {
  * Who may remove a tool: owners of the application's space (<system>-owners)
  * and platform admins. Mirrors the space roles in CLAUDE.md (owner ⊃ maintainer ⊃ developer).
  */
-export const canRemoveTools = (entity: Entity, ownershipRefs: string[]) => {
-  const system = (entity.spec?.system as string | undefined) ?? '';
-  return (
-    ownershipRefs.includes('group:default/platform-team') ||
-    (system !== '' && ownershipRefs.includes(`group:default/${system}-maintainers`))
-  );
-};
-
 export const CI_TOOLS = TOOLS.filter(t => t.stage === 'ci');
 export const CD_TOOLS = TOOLS.filter(t => t.stage === 'cd');

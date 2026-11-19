@@ -8,7 +8,9 @@ import BusinessIcon from '@material-ui/icons/Business';
 import FolderIcon from '@material-ui/icons/FolderOpen';
 import ArrowForward from '@material-ui/icons/ArrowForward';
 import { useProjects } from './data';
-import { PreviewDialog } from './PreviewDialog';
+import { CreateSpaceDialog } from './CreateSpaceDialog';
+import { identityApiRef, useApi } from '@backstage/core-plugin-api';
+import useAsync from 'react-use/esm/useAsync';
 import { CD_TOOLS, CI_TOOLS, toolState } from '../tools/tools';
 import { ToolLogo } from '../tools/ToolLogo';
 
@@ -88,7 +90,7 @@ const ProjectNode = ({ system, parts }: { system: Entity; parts: Entity[] }) => 
   return (
     <div className={classes.card}>
       <Box>
-        <div className={classes.kicker}>DevOps Space · Project</div>
+        <div className={classes.kicker}>DevOps Space</div>
         <div className={classes.title}>{system.metadata.title ?? system.metadata.name}</div>
         <Typography variant="body2" color="textSecondary">{system.metadata.description ?? ''}</Typography>
       </Box>
@@ -106,7 +108,7 @@ const ProjectNode = ({ system, parts }: { system: Entity; parts: Entity[] }) => 
       </Box>
       <EntityRefLink entityRef={system} style={{ textDecoration: 'none' }}>
         <Button fullWidth variant="outlined" color="primary" endIcon={<ArrowForward />}>
-          Open project
+          Open space
         </Button>
       </EntityRefLink>
     </div>
@@ -118,10 +120,19 @@ export const SpaceOverview = () => {
   const classes = useStyles();
   const { entity } = useEntity();
   const name = entity.metadata.name;
-  const { value, loading, error } = useProjects(name);
+  const [reload, setReload] = useState(0);
+  const { value, loading, error } = useProjects(name, reload);
   const [creating, setCreating] = useState(false);
+  const identityApi = useApi(identityApiRef);
+  const { value: refs = [] } = useAsync(async () => (await identityApi.getBackstageIdentity()).ownershipEntityRefs, []);
+  const canCreate = refs.includes('group:default/platform-team') || refs.includes(`group:default/${name}-admins`);
+  const createButton = canCreate && (
+    <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>
+      Create space
+    </Button>
+  );
 
-  if (loading) return <Progress />;
+  if (loading && !value) return <Progress />;
   if (error) return <ResponseErrorPanel error={error} />;
   const projects = value ?? [];
 
@@ -129,13 +140,9 @@ export const SpaceOverview = () => {
     <Box>
       <Box display="flex" alignItems="center" mb={1}>
         <Typography variant="body2" color="textSecondary">
-          {projects.length} project{projects.length === 1 ? '' : 's'} · each project is one DevOps Space
+          {projects.length} DevOps Space{projects.length === 1 ? '' : 's'}
         </Typography>
-        <Box ml="auto">
-          <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>
-            Create project
-          </Button>
-        </Box>
+        <Box ml="auto">{createButton}</Box>
       </Box>
 
       <div className={classes.tree}>
@@ -150,13 +157,11 @@ export const SpaceOverview = () => {
         {projects.length === 0 ? (
           <div className={classes.empty}>
             <FolderIcon color="disabled" style={{ fontSize: 44 }} />
-            <Typography variant="h6" gutterBottom>No projects yet</Typography>
+            <Typography variant="h6" gutterBottom>No DevOps Spaces yet</Typography>
             <Typography variant="body2" color="textSecondary" paragraph>
-              A project is a DevOps Space: its applications, CI and CD pipelines, members and docs.
+              A DevOps Space holds a team's applications, CI and CD pipelines, members and docs.
             </Typography>
-            <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating(true)}>
-              Create project
-            </Button>
+            {createButton || <Typography variant="body2" color="textSecondary">The owner or a manager of this entity can create one.</Typography>}
           </div>
         ) : (
           <div className={classes.children}>
@@ -170,17 +175,8 @@ export const SpaceOverview = () => {
         )}
       </div>
 
-      <PreviewDialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        title={`Create project in ${entity.metadata.title ?? name}`}
-        steps={[
-          'pick a river name (taken names hidden, uniqueness checked)',
-          `creates System <river> in ${name} + groups <river>-owners/-maintainers/-developers/-viewers`,
-          'creates GitHub teams, repo <river>-gitops-cd, K3s namespace, ArgoCD AppProject, Infisical project, SonarQube groups + permission template',
-          'you become owner of the new project',
-        ]}
-      />
+      <CreateSpaceDialog entity={name} entityTitle={entity.metadata.title ?? name} open={creating} onClose={() => setCreating(false)}
+        onCreated={() => { setTimeout(() => setReload(r => r + 1), 4000); setTimeout(() => setReload(r => r + 1), 12000); }} />
     </Box>
   );
 };

@@ -15,10 +15,12 @@ import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
-import { builds, createDeployment, deleteDeployment, deploy, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
+import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
+import { collectEsoState, explainStatus, probeUrl } from './everestoStatus';
 import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
+import { FLOWERS, createSpace } from './everestoSpaces';
 import { SPACE_ROLES, SpaceRole, addMember, canManageRole, removeMember } from './everestoMembers';
 
 const OWNER = 'Everesto-Inc';
@@ -394,6 +396,34 @@ export const everestoInsightsPlugin = createBackendPlugin({
           } catch (e) { fail(res, e); }
         });
 
+        // status chain per environment: what is done, what is next, how long to wait, what to click
+        router.get('/apps/:repo/status', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const project = await member(req, repo);
+            const token = await githubToken(config, OWNER);
+            const meta = JSON.parse((await readFile(token, `${repo}-gitops`, 'deployment.json')) ?? '{}');
+            const nsKey = String(meta.nsKey ?? project);
+            const envs = await Promise.all((['dev', 'prod'] as const).map(async env => {
+              const namespace = `${env}-${nsKey}`;
+              const [git, argo, wl, eso, url] = await Promise.all([
+                readFile(token, `${repo}-gitops`, `apps/${env}/kustomization.yaml`),
+                argoApp(`${env}-${repo}`),
+                workloads(namespace, repo),
+                collectEsoState(repo, env, namespace),
+                env === 'dev' && meta.publicUrl ? probeUrl(devHost(repo)) : Promise.resolve(undefined),
+              ]);
+              const steps = explainStatus({
+                env, repo, namespace, clusterReadable: argo !== undefined, gitConfigured: !!git, argo, ...eso,
+                pods: wl?.pods, replicas: wl?.deployments?.[0]?.replicas, events: wl?.events?.map(e => `${e.reason}: ${e.message}`), url,
+              });
+              return { env, namespace, steps };
+            }));
+            res.json({ envs });
+          } catch (e) { fail(res, e); }
+        });
+
         router.get('/apps/:repo/k8s/logs', async (req, res) => {
           const { repo } = req.params;
           const logEnv = envOf(req.query.env);
@@ -471,6 +501,38 @@ export const everestoInsightsPlugin = createBackendPlugin({
         };
         router.post('/spaces/:space/members', (req, res) => memberChange(req, res, false));
         router.post('/spaces/:space/members/remove', (req, res) => memberChange(req, res, true));
+
+        // ---- DevOps Spaces: create (owner or the entity's managers) ----
+        const takenNames = async () => {
+          const credentials = await auth.getOwnServiceCredentials();
+          const items = (await catalog.getEntities({ filter: [{ kind: 'System' }, { kind: 'Group' }, { kind: 'Domain' }], fields: ['metadata.name'] }, { credentials })).items;
+          return items.map(e => e.metadata.name);
+        };
+        const canCreateSpace = (refs: string[], entity: string) => refs.includes('group:default/platform-team') || refs.includes(`group:default/${entity}-admins`);
+        router.get('/entities/:entity/spaces/suggest', async (req, res) => {
+          const { entity } = req.params;
+          try {
+            const { refs } = await caller(req);
+            const taken = new Set(await takenNames());
+            res.json({ canCreate: canCreateSpace(refs, entity), free: FLOWERS.filter(f => !taken.has(f)) });
+          } catch (e) { fail(res, e); }
+        });
+        router.post('/entities/:entity/spaces', async (req, res) => {
+          const { entity } = req.params;
+          const name = str(req.body?.name).toLowerCase();
+          try {
+            const { refs, who } = await caller(req);
+            if (!canCreateSpace(refs, entity)) { res.status(403).json({ error: `only the owner or managers of entity ${entity} can create spaces` }); return; }
+            const credentials = await auth.getOwnServiceCredentials();
+            if (!(await catalog.getEntityByRef(`domain:default/${entity}`, { credentials }))) { res.status(404).json({ error: `entity ${entity} not found` }); return; }
+            const out = await createSpace(config, entity, name, str(req.body?.description).slice(0, 200), await takenNames(), who);
+            await catalog.refreshEntity('location:default/everesto-catalog', { credentials }).catch(() => undefined);
+            logger.info(`space ${name} created in ${entity} by ${who}`);
+            // GitHub teams for the roles — in the background (the 30-min sync would do it too)
+            runAccessSync(false).then(r => logger.info(`access sync after new space ${name}: ${r.actions.length} actions`), e => logger.warn(`access sync after new space ${name} failed: ${e}`));
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
 
         router.get('/apps/:repo/builds', async (req, res) => {
           const { repo } = req.params;

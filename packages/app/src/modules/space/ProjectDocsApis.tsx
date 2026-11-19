@@ -92,7 +92,7 @@ export const ProjectStartupGuide = () => {
   const p = entity.metadata.name;
   const steps = [
     { t: 'Accept your invitations', d: `GitHub org Everesto-Inc + team ${p}-developers (email invite)`, a: 'Open GitHub' },
-    { t: 'Sign in to Backstage with GitHub', d: 'Your role in this project is applied automatically', a: undefined },
+    { t: 'Sign in to Backstage with GitHub', d: 'Your role in this space is applied automatically', a: undefined },
     { t: 'Clone an application', d: `git clone git@github.com:Everesto-Inc/${p}-java-backend.git`, a: 'Copy' },
     { t: 'Run it locally', d: 'See the app’s README — secrets come from Infisical (infisical run -- ./gradlew bootRun)', a: 'Open README' },
     { t: 'Open your first pull request', d: 'CI runs build, tests, SonarQube, Fortify, Nexus IQ — all must pass', a: 'Pipelines' },

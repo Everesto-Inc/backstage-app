@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useEveresto } from './api';
 import { Entity } from '@backstage/catalog-model';
-import { alertApiRef, discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import {
   Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Link, TextField, Typography,
 } from '@material-ui/core';
@@ -23,8 +24,6 @@ type List = { env: Env; canEdit: boolean; secrets: { name: string; updatedAt: st
 const VAR = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 export const SecretsTab = ({ entity }: { entity: Entity }) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
   const alertApi = useApi(alertApiRef);
   const repo = insightsTarget(entity).repo;
   const project = String(entity.spec?.system ?? '');
@@ -39,15 +38,8 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
 
   const isMaintainer = useSpaceRole(project).maintainer; // includes entity admins
 
-  const call = async (method: 'GET' | 'POST', path: string, body?: unknown) => {
-    const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}/apps/${encodeURIComponent(repo)}${path}`, {
-      method, headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined,
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-    return json;
-  };
+  const api = useEveresto();
+  const call = (method: 'GET' | 'POST', path: string, body?: unknown) => api(method, `/apps/${encodeURIComponent(repo)}${path}`, body);
   const list = useAsyncRetry(async (): Promise<List> => call('GET', `/secrets?env=${env}`), [env, repo]);
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -112,12 +104,12 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
         ))}
         {d && !canEdit && <Typography variant="caption" color="textSecondary">You can see the names; changing {env} secrets needs {env === 'prod' ? 'manager' : 'developer, maintainer or manager'} rights in {project}.</Typography>}
         <Typography variant="caption" color="textSecondary" component="div" style={{ marginTop: 8 }}>
-          Values are never shown here — only written. ESO syncs within 5 minutes; the pod reads them at start.
+          Values are never shown here — only written. The cluster picks up changes within 5 minutes; the app reads them when it (re)starts.
         </Typography>
       </Box>
 
       <Box mt={2}>
-        <CmdBox title={`After changing a secret — apply it now (force ESO sync + restart ${repo} in ${nsOf(entity, env)}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
+        <CmdBox title={`After changing a secret — apply it now (refresh the secrets now + restart ${repo} in ${nsOf(entity, env)}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
       </Box>
 
       <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
@@ -130,15 +122,15 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
 
       {isMaintainer && (
         <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
-          <Typography variant="subtitle2">ESO login (identity eso-{repo})</Typography>
+          <Typography variant="subtitle2">Cluster access to secrets</Typography>
           <Typography variant="body2" color="textSecondary">
-            The cluster reads this app's secrets with the login <code>infisical-{repo}-auth</code>, kept up to date automatically (Infisical → ESO).
-            Rotate it (new client secret) if it may have leaked — nothing to copy, nothing to run.
+            The cluster reads this app's secrets from Infisical with its own read-only login, managed automatically.
+            Renew it if it may have leaked, or when the CD tab's Status asks for it — nothing to copy, nothing to run.
           </Typography>
-          <Box mt={1}><Button size="small" variant="outlined" disabled={busy} onClick={newLogin}>New ESO login</Button></Box>
+          <Box mt={1}><Button size="small" variant="outlined" disabled={busy} onClick={newLogin}>Renew cluster access</Button></Box>
           {esoCmd && (
             <>
-              <CmdBox title={`✓ New login for eso-${repo} stored in Infisical — ESO picks it up within 5 minutes (nothing to run)`} cmd={esoCmd} />
+              <CmdBox title={`✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status.`} cmd={esoCmd} />
             </>
           )}
         </Box>
