@@ -14,7 +14,7 @@
  */
 import { Config } from '@backstage/config';
 import { gh, githubToken } from './everestoActions';
-import { OWNER } from './everestoManage';
+import { OWNER, commit, readFile } from './everestoManage';
 
 type Perm = 'pull' | 'push' | 'maintain';
 const ROLES = ['developers', 'maintainers', 'managers'] as const; // owner = platform-team = org owners
@@ -47,7 +47,7 @@ export async function expandEntityAdmins(refs: string[], spacesOf: (entity: stri
 }
 
 /** Read spaces, role groups and repos from the catalog. */
-export async function readSpaces(getEntities: (filter: Record<string, string>) => Promise<any[]>): Promise<Space[]> {
+export async function readSpaces(getEntities: (filter: Record<string, string>) => Promise<any[]>, registry?: Record<string, string>): Promise<Space[]> {
   const systems = await getEntities({ kind: 'System', 'metadata.labels.everesto.live/level': 'space' });
   const groups = await getEntities({ kind: 'Group', 'spec.type': 'role' });
   const entityAdmins = await getEntities({ kind: 'Group', 'metadata.labels.everesto.live/role': 'entity-admin' });
@@ -62,7 +62,10 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
     const admins = ((entityAdmins.find(g => g.metadata.name === `${sys.spec?.domain}-admins`)?.spec?.members ?? []) as string[])
       .map(m => m.replace(/^user:(default\/)?/, '').toLowerCase());
     members.managers = [...new Set([...members.managers, ...admins])];
-    const inSpace = (e: any) => e.spec?.system === name && e.metadata?.annotations?.['everesto.live/protected'] !== 'true';
+    // which repos belong to the space: the app registry (platform-controlled) — never the repo's own spec.system
+    const repoOf = (e: any) => String(slugOf(e) ?? '').replace(/-gitops$/, '');
+    const inSpace = (e: any) => (registry ? registry[repoOf(e)] === name : e.spec?.system === name)
+      && e.metadata?.annotations?.['everesto.live/protected'] !== 'true';
     return {
       name,
       members,
@@ -91,10 +94,10 @@ export const rulesetBody = (appId: number) => ({
     {
       type: 'pull_request',
       parameters: {
-        required_approving_review_count: 0, // PR required; approvals can be raised per space later
-        dismiss_stale_reviews_on_push: false,
-        require_code_owner_review: false,
-        require_last_push_approval: false,
+        required_approving_review_count: 1, // four eyes: nobody merges their own change alone
+        dismiss_stale_reviews_on_push: true, // a new push needs a new approval
+        require_code_owner_review: true, // CODEOWNERS: CI + catalog → maintainers, prod → managers
+        require_last_push_approval: true, // whoever pushed last can't be the approver
         required_review_thread_resolution: false,
       },
     },
@@ -104,6 +107,15 @@ export const rulesetBody = (appId: number) => ({
     { actor_id: 1, actor_type: 'OrganizationAdmin', bypass_mode: 'always' }, // org owners: break-glass
   ],
 });
+
+/** Pure: CODEOWNERS of a space repo. Last matching line wins. Teams must have write access (they do: maintain / push). */
+export function codeowners(space: string, kind: 'ci' | 'gitops') {
+  const t = (r: string) => `@${OWNER}/${space}-${r}`;
+  const head = `# Managed by Backstage (access sync) — do not edit: changes here are overwritten.\n# main needs 1 approval; for the paths below it must come from these teams.\n`;
+  return kind === 'ci'
+    ? `${head}/.github/            ${t('maintainers')} ${t('managers')}\n/catalog-info.yaml   ${t('maintainers')} ${t('managers')}\n`
+    : `${head}*                    ${t('maintainers')} ${t('managers')}\n/apps/prod/          ${t('managers')}\n/argocd/argocd-prod.yaml ${t('managers')}\n/.github/            ${t('managers')}\n`;
+}
 
 export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: boolean, platformTeam?: string[]): Promise<AccessReport> {
   const token = await githubToken(config, OWNER);
@@ -185,9 +197,27 @@ export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: 
     for (const repo of [...space.ciRepos, ...space.gitopsRepos]) {
       const list = await gh(token, 'GET', `/repos/${OWNER}/${repo}/rulesets`);
       if (!list.ok) { report.warnings.push(`${repo}: cannot read rulesets (HTTP ${list.status})`); continue; }
-      if (!((list.json ?? []) as any[]).some(r => r.name === RULESET)) {
-        await act(`protect main of ${repo} (PR only, no force-push, no deletion)`,
-          () => gh(token, 'POST', `/repos/${OWNER}/${repo}/rulesets`, rulesetBody(appId)));
+      const existing = ((list.json ?? []) as any[]).find(r => r.name === RULESET);
+      const want = rulesetBody(appId);
+      if (!existing) {
+        await act(`protect main of ${repo} (PR + 1 approval, code owners, no force-push, no deletion)`,
+          () => gh(token, 'POST', `/repos/${OWNER}/${repo}/rulesets`, want));
+      } else {
+        const cur = await gh(token, 'GET', `/repos/${OWNER}/${repo}/rulesets/${existing.id}`);
+        const pr = ((cur.json?.rules ?? []) as any[]).find(r => r.type === 'pull_request')?.parameters ?? {};
+        const wantPr = (want.rules.find(r => r.type === 'pull_request') as any).parameters;
+        if (Object.keys(wantPr).some(k => pr[k] !== wantPr[k])) {
+          await act(`update main protection of ${repo} (1 approval, code owners, stale approvals dismissed)`,
+            () => gh(token, 'PUT', `/repos/${OWNER}/${repo}/rulesets/${existing.id}`, want));
+        }
+      }
+      // CODEOWNERS: who must approve which paths (written by the GitHub App — it bypasses the ruleset)
+      const kind = space.gitopsRepos.includes(repo) ? 'gitops' : 'ci';
+      const owners = codeowners(space.name, kind);
+      const have = await readFile(token, repo, '.github/CODEOWNERS');
+      if (have !== owners) {
+        await act(`${have === undefined ? 'add' : 'update'} .github/CODEOWNERS in ${repo} (${kind === 'gitops' ? 'prod → managers' : 'CI + catalog → maintainers'})`,
+          async () => { await commit(token, repo, 'CODEOWNERS: reviewers per path (Backstage access sync)', [{ path: '.github/CODEOWNERS', content: owners }]); return { ok: true, status: 200 }; });
       }
     }
   }
@@ -232,7 +262,8 @@ export function argoRbacCsv(spaceNames: string[]) {
       '',
       `# DevOps Space ${s}`,
       `p, role:${s}-developer, applications, get, ${app}, allow`,
-      `p, role:${s}-developer, applications, sync, ${app}, allow`,
+      `p, role:${s}-developer, applications, sync, ${s}/dev-*, allow`, // dev only — prod is synced by managers
+      `p, role:${s}-manager, applications, sync, ${app}, allow`,
       `p, role:${s}-developer, logs, get, ${app}, allow`,
       `p, role:${s}-developer, projects, get, ${s}, allow`,
       `p, role:${s}-maintainer, applications, delete, ${app}, allow`,

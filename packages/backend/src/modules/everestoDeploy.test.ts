@@ -1,4 +1,5 @@
 import { NS_KEY, applySecretsCmd, devHost, ns, setupCommands } from './everestoDeploy';
+import { TENANT_KINDS, appProject, guardrails, quotaOf } from './everestoManifests';
 
 describe('setupCommands', () => {
   const steps = setupCommands('python-backend', 'orchid', false);
@@ -57,5 +58,32 @@ describe('namespaces', () => {
     const all = setupCommands('python-backend', 'orchid', false, 'python').map(s => s.cmd).join('\n');
     expect(all).toContain('-n dev-python');
     expect(all).not.toContain('dev-orchid');
+  });
+});
+
+describe('tenant guardrails', () => {
+  it('budget: app × (replicas + 1) + 128 Mi, capped', () => {
+    expect(quotaOf({ memoryMi: 256, replicas: 1 })).toEqual({ memoryMi: 640, pods: 6 });
+    expect(quotaOf({ memoryMi: 1024, replicas: 3 }).memoryMi).toBe(1536);
+  });
+  it('namespace + quota + limits + isolation + read binding, all in the app namespace', () => {
+    const docs = guardrails('python-backend', 'orchid', 'dev', 'python', { memoryMi: 256, replicas: 1 });
+    const all = docs.join('---\n');
+    expect(all).toContain('kind: Namespace');
+    expect(all).toContain('everesto.live/tenant: "true"');
+    expect(all).toContain('pod-security.kubernetes.io/enforce: baseline');
+    expect(all).toMatch(/kind: ResourceQuota\nmetadata: \{ name: tenant-quota, namespace: dev-python \}/);
+    expect(all).toContain('services.nodeports: "0"');
+    expect(all).toMatch(/kind: NetworkPolicy[\s\S]*operator: DoesNotExist/);
+    expect(all).toMatch(/kind: RoleBinding\nmetadata:\n {2}namespace: dev-python\n {2}name: backstage-read-python-backend/);
+  });
+  it('tenants may not manage RBAC, policies, quotas, secrets or anything cluster-wide', () => {
+    const p = appProject('orchid', ['dev-python']);
+    expect(p).toContain('clusterResourceWhitelist: []');
+    expect(p).not.toContain("kind: '*'");
+    for (const k of ['RoleBinding', 'NetworkPolicy', 'ResourceQuota', 'LimitRange', 'Secret', 'SecretStore', 'Namespace']) {
+      expect(p).not.toMatch(new RegExp(`kind: ${k} }`));
+    }
+    expect(TENANT_KINDS.length).toBeGreaterThan(5);
   });
 });

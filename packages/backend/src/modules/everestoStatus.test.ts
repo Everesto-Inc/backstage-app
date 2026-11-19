@@ -90,3 +90,20 @@ describe('githubProblem', () => {
     expect(githubProblem(503, 'x')).toContain('try again');
   });
 });
+
+describe('explainStatus guardrails', () => {
+  const base2: Raw = {
+    env: 'dev', repo: 'python-backend', namespace: 'dev-python', clusterReadable: true, gitConfigured: true,
+    argo: { exists: true, sync: 'Synced', health: 'Progressing' }, access: { ready: true }, store: { ready: true }, appSecret: { ready: true },
+    pods: [], replicas: 1,
+  };
+  it('quota used up → says so, with the fix', () => {
+    const s = explainStatus({ ...base2, events: ['FailedCreate: pods "python-backend-x" is forbidden: exceeded quota: tenant-quota, requested: limits.memory=512Mi'] }).find(x => x.id === 'run')!;
+    expect(s.state).toBe('fail');
+    expect(s.detail).toContain('budget');
+  });
+  it('pod security → says so', () => {
+    const s = explainStatus({ ...base2, events: ['FailedCreate: violates PodSecurity "baseline:latest": host namespaces'] }).find(x => x.id === 'run')!;
+    expect(s.detail).toContain('pod security');
+  });
+});

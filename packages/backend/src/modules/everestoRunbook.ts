@@ -47,7 +47,7 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean, n
     {
       n: 5, env: 'dev', title: `Sync dev-${repo} (or ArgoCD UI → Sync)`,
       cmd: sync('dev'),
-      creates: [`Namespace ${dev}`, `Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${dev}: Backstage may READ this namespace — CD tab)`],
+      creates: [`Deployment + pod ${repo} (ns ${dev})`, `Service ${repo} (ns ${dev})`, `ExternalSecret ${repo} (ns ${dev})`, `Secret ${repo} (ns ${dev}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${dev}: Backstage may READ this namespace — CD tab)`],
       explain: `ArgoCD applies everything in apps/dev: the namespace first, then Deployment (image + tag, port, /health probes, memory), Service (port 80 → container port) and ExternalSecret. ESO sees the ExternalSecret and creates Secret ${repo} from Infisical dev; the pod gets every key as an environment variable. Run again after every "Deploy to dev".`,
     },
     { n: 6, env: 'dev', title: 'Check dev', cmd: check('dev'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },
@@ -60,7 +60,7 @@ export const setupCommands = (repo: string, project: string, hasProd: boolean, n
     {
       n: 8, env: 'prod', title: `Sync prod-${repo} (or ArgoCD UI → Sync)`,
       cmd: sync('prod'),
-      creates: [`Namespace ${prod}`, `Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${prod}: Backstage may READ this namespace — CD tab)`],
+      creates: [`Deployment + pod ${repo} (ns ${prod})`, `Service ${repo} (ns ${prod})`, `ExternalSecret ${repo} (ns ${prod})`, `Secret ${repo} (ns ${prod}, created by ESO)`, `RoleBinding backstage-read-${repo} (ns ${prod}: Backstage may READ this namespace — CD tab)`],
       explain: `Like step 5, for prod. Run again after every merged "Promote to prod" PR.`,
     },
     { n: 9, env: 'prod', title: 'Check prod', cmd: check('prod'), creates: [], explain: 'Application Synced/Healthy, pod Running, ExternalSecret SecretSynced, Secret present.' },

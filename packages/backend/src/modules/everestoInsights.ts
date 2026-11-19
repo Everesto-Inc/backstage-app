@@ -19,6 +19,7 @@ import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogi
 import { gh, githubToken } from './everestoActions';
 import { kustomizeTag } from './everestoYaml';
 import { syncSonarAccess } from './everestoSonarAccess';
+import { readRegistry } from './everestoRegistry';
 import { collectEsoState, explainStatus, probeUrl } from './everestoStatus';
 import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
@@ -468,7 +469,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
           const getEntities = async (filter: Record<string, string>) => (await catalog.getEntities({ filter }, { credentials })).items;
           const platform = (await getEntities({ kind: 'Group', 'metadata.name': 'platform-team' }))[0];
           const owners = ((platform?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase());
-          const spaces = await readSpaces(getEntities);
+          const spaces = await readSpaces(getEntities, await readRegistry(await githubToken(config, OWNER), true));
           const github = await syncGithubAccess(config, spaces, dryRun, owners);
           // SonarQube follows the same roles (its own failure never blocks the GitHub part)
           const sonar = await syncSonarAccess(config, spaces, dryRun, owners).catch(e => ({ actions: [], warnings: [`SonarQube sync failed: ${e}`] }));

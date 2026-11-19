@@ -25,7 +25,7 @@ export type DeploymentInput = {
 export const kustomization = (image: string, tag: string, nsKey: string, env: Env, ingress = false) => `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: ${ns(nsKey, env)}
-resources: [namespace.yaml, deployment.yaml, service.yaml, externalsecret.yaml, rolebinding-backstage.yaml${ingress ? ', ingress.yaml' : ''}]
+resources: [deployment.yaml, service.yaml, externalsecret.yaml${ingress ? ', ingress.yaml' : ''}]   # namespace, quota, network policy: platform (gitops-backstage)
 images:
   - name: ${image}
     newTag: ${tag}   # ${env === 'dev' ? 'changed by "Deploy" in Backstage' : 'changed by "Promote to prod" (PR)'} — then Sync in ArgoCD
@@ -70,7 +70,12 @@ export const namespace = (project: string, nsKey: string, env: Env) => `apiVersi
 kind: Namespace
 metadata:
   name: ${ns(nsKey, env)}
-  labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
+  labels:
+    everesto.live/tenant: "true"          # NetworkPolicies of OTHER tenants deny traffic from here
+    everesto.live/project: ${project}
+    everesto.live/env: ${env}
+    pod-security.kubernetes.io/enforce: baseline   # no privileged / hostPath / hostNetwork pods
+    pod-security.kubernetes.io/warn: restricted
   annotations:
     # never deleted by ArgoCD (safety): remove it by hand after Delete deployment if it is empty
     argocd.argoproj.io/sync-options: Delete=false
@@ -85,6 +90,68 @@ roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: backsta
 subjects:
   - { kind: ServiceAccount, name: backstage, namespace: prod-backstage }
 `;
+
+/** Size of an app → its namespace budget (quota). Room for one extra pod during a rolling update. */
+export type Size = { memoryMi: number; replicas: number };
+export const QUOTA_MAX_MI = 1536; // the tenant node has ~1.5–2 GB for ALL tenant apps
+export const quotaOf = (s: Size) => ({
+  memoryMi: Math.min(QUOTA_MAX_MI, s.memoryMi * (s.replicas + 1) + 128),
+  pods: s.replicas * 2 + 4,
+});
+
+/**
+ * Platform guardrails of ONE app namespace — in the PLATFORM repo (gitops-backstage tenant file), applied by the
+ * platform project: tenants can't change or delete them (their ArgoCD project may not manage these kinds).
+ */
+export const guardrails = (repo: string, project: string, env: Env, nsKey: string, size: Size) => {
+  const n = ns(nsKey, env);
+  const q = quotaOf(size);
+  return [
+    namespace(project, nsKey, env),
+    `# Budget of ${n}: memory = app × (replicas + 1) + 128 Mi (max ${QUOTA_MAX_MI} Mi). No NodePort / LoadBalancer / volumes.
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: tenant-quota, namespace: ${n} }
+spec:
+  hard:
+    requests.memory: ${q.memoryMi}Mi
+    limits.memory: ${q.memoryMi}Mi
+    requests.cpu: "1"
+    pods: "${q.pods}"
+    services: "5"
+    services.nodeports: "0"
+    services.loadbalancers: "0"
+    persistentvolumeclaims: "0"
+`,
+    `# Defaults for containers that set no resources (else the quota would reject them)
+apiVersion: v1
+kind: LimitRange
+metadata: { name: tenant-defaults, namespace: ${n} }
+spec:
+  limits:
+    - type: Container
+      default: { memory: 256Mi }
+      defaultRequest: { memory: 64Mi, cpu: 25m }
+      max: { memory: 1024Mi }
+`,
+    `# Isolation: pods here accept traffic only from this namespace and from PLATFORM namespaces (ingress, monitoring) —
+# never from another tenant (every tenant namespace carries everesto.live/tenant=true).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: tenant-isolation, namespace: ${n} }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchExpressions: [{ key: everesto.live/tenant, operator: DoesNotExist }]
+`,
+    roleBinding(repo).replace('  name: backstage-read-', `  namespace: ${n}
+  name: backstage-read-`),
+  ];
+};
 
 /** dev URL: https://<repo>.dev.everesto.live (app names are unique in the org → one wildcard cert covers all). */
 export const devHost = (repo: string) => `${repo}.dev.everesto.live`;
@@ -126,6 +193,14 @@ spec:
     - find: { name: { regexp: ".*" } }
 `;
 
+// What a tenant's own gitops repo may create: app objects only. Namespace, quota, limits, network policy and RBAC
+// are platform guardrails (tenant file in gitops-backstage) — a tenant can neither create nor delete them.
+export const TENANT_KINDS = [
+  ['apps', 'Deployment'], ['', 'Service'], ['', 'ConfigMap'], ['networking.k8s.io', 'Ingress'],
+  ['external-secrets.io', 'ExternalSecret'], ['batch', 'CronJob'], ['batch', 'Job'],
+  ['autoscaling', 'HorizontalPodAutoscaler'], ['policy', 'PodDisruptionBudget'],
+] as const;
+
 export const appProject = (project: string, namespaces: string[]) => `apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -137,10 +212,9 @@ spec:
     - https://github.com/${OWNER}/*-gitops.git
   destinations:   # exactly the namespaces of this space's apps (dev-<key> / prod-<key>)
 ${[...new Set(namespaces)].sort().map(n => `    - { server: https://kubernetes.default.svc, namespace: ${n} }`).join('\n')}
-  clusterResourceWhitelist:
-    - { group: '', kind: Namespace }
-  namespaceResourceWhitelist:
-    - { group: '*', kind: '*' }
+  clusterResourceWhitelist: []   # nothing cluster-wide (the namespace comes from the platform)
+  namespaceResourceWhitelist:     # app objects only — no RBAC, NetworkPolicy, quota, Secret, SecretStore
+${TENANT_KINDS.map(([g, k]) => `    - { group: '${g}', kind: ${k} }`).join('\n')}
 `;
 
 export const application = (repo: string, project: string, env: Env, nsKey: string) => `apiVersion: argoproj.io/v1alpha1

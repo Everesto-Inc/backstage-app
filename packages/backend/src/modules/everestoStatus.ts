@@ -103,7 +103,7 @@ export function explainStatus(r: Raw): Step[] {
   } else steps.push({ id: 'sync', title: 'Synced to the cluster', state: 'off', detail: 'After the ArgoCD app exists.' });
 
   // 6 app secrets
-  if (r.appSecret === undefined) steps.push({ id: 'secrets', title: 'App secrets', state: 'unknown', detail: 'Not readable (sync once — it creates the read permission).' });
+  if (r.appSecret === undefined) steps.push({ id: 'secrets', title: 'App secrets', state: 'unknown', detail: 'Not readable yet — the platform creates the namespace and its read permission with the ArgoCD app (~3 min).' });
   else if (r.appSecret === null) steps.push({ id: 'secrets', title: 'App secrets', state: 'off', detail: 'Created by the first Sync.' });
   else if (r.appSecret.ready) steps.push({ id: 'secrets', title: 'App secrets', state: 'ok', detail: 'loaded from Infisical' });
   else {
@@ -116,7 +116,14 @@ export function explainStatus(r: Raw): Step[] {
   // 7 running
   const pods = r.pods ?? [];
   const ready = pods.filter(p => p.ready).length;
-  if (!r.argo?.exists || r.argo.sync === undefined || pods.length === 0) {
+  const evAll = (r.events ?? []).join(' ');
+  if (r.argo?.sync === 'Synced' && pods.length === 0 && /exceeded quota/i.test(evAll)) {
+    steps.push({ id: 'run', title: 'Running', state: 'fail', detail: 'No pod could start: the namespace memory budget (quota) is used up.',
+      fix: { text: 'Lower memory or replicas in Edit deployment — or ask the platform team for a bigger budget.', action: 'edit-deployment' } });
+  } else if (r.argo?.sync === 'Synced' && pods.length === 0 && /violates PodSecurity/i.test(evAll)) {
+    steps.push({ id: 'run', title: 'Running', state: 'fail', detail: 'Blocked by pod security: privileged / hostPath / hostNetwork are not allowed on the platform.',
+      fix: { text: 'Remove those settings from the deployment.', action: 'logs' } });
+  } else if (!r.argo?.exists || r.argo.sync === undefined || pods.length === 0) {
     steps.push({ id: 'run', title: 'Running', state: r.argo?.sync === 'Synced' ? 'wait' : 'off', detail: r.argo?.sync === 'Synced' ? 'Starting…' : 'After Sync.' });
   } else if (r.replicas !== undefined && ready >= r.replicas && ready > 0) {
     steps.push({ id: 'run', title: 'Running', state: 'ok', detail: `${ready}/${r.replicas} ready` });

@@ -20,6 +20,7 @@ import { ROLE } from './everestoRoles';
 export { ROLE };
 import { infisicalDelete } from './everestoInfisical';
 import { component, setAnnotation } from './everestoYaml';
+import { spaceOf, unregisterApp } from './everestoRegistry';
 import { removeTenant } from './everestoTenants';
 
 export const OWNER = 'Everesto-Inc';
@@ -59,11 +60,12 @@ export async function commit(token: string, repo: string, message: string, files
 export async function appInfo(token: string, repo: string) {
   const info = await readFile(token, repo, 'catalog-info.yaml');
   if (!info) throw Object.assign(new Error('not a Backstage application (no catalog-info.yaml)'), { status: 404 });
-  // the app's Component decides (never another document of the file, never a comment)
+  // The SPACE comes from the platform's app registry — never from the repo itself (anyone who can merge into the
+  // repo could otherwise claim another space and use that space's roles). Not registered → nobody but the owner acts.
+  const project = await spaceOf(token, repo);
+  if (!project) throw Object.assign(new Error(`${repo} is not registered with a DevOps Space — ask the platform team`), { status: 409 });
   const c = component(info);
-  const project = c?.system && /^[a-z0-9-]+$/.test(c.system) ? c.system : undefined;
   const sonarKey = c?.annotations['sonarqube.org/project-key'];
-  if (!project) throw Object.assign(new Error('catalog-info.yaml has no spec.system'), { status: 409 });
   return { info, project, sonarKey, app: repo.startsWith(`${project}-`) ? repo.slice(project.length + 1) : repo };
 }
 
@@ -227,6 +229,7 @@ export async function deleteApp(
   const del = await gh(token, 'DELETE', `/repos/${OWNER}/${repo}`);
   if (!del.ok) throw new Error(`GitHub: cannot delete repo ${repo} (${del.status}) — done so far: ${done.join(', ')}`);
   done.push(`GitHub repo ${OWNER}/${repo} (with its Actions + secrets)`);
+  await unregisterApp(token, repo, 'Backstage').then(() => done.push('app registry entry'), e => warn.push(`registry: ${e}`));
 
   warn.push(`container images ghcr.io/everesto-inc/${repo} — delete in GitHub → Packages (the GitHub App can't)`);
   return { done, warn };

@@ -10,6 +10,7 @@ import { createBackend } from '@backstage/backend-defaults';
 import { permissionPolicyModule } from './modules/permissionPolicy';
 import { everestoActionsModule } from './modules/everestoActions';
 import { everestoInsightsPlugin } from './modules/everestoInsights';
+import { everestoCatalogGuardModule } from './modules/everestoCatalogGuard';
 
 const backend = createBackend();
 
@@ -43,6 +44,7 @@ backend.add(import('@backstage/plugin-auth-backend-module-github-provider'));
 
 // catalog plugin
 backend.add(import('@backstage/plugin-catalog-backend'));
+backend.add(everestoCatalogGuardModule); // an app's space = the app registry, never its own catalog-info.yaml
 backend.add(
   import('@backstage/plugin-catalog-backend-module-scaffolder-entity-model'),
 );

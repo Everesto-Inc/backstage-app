@@ -19,6 +19,7 @@
     "@backstage-community/plugin-sonarqube-backend": "^1.4.0",
     "@backstage/backend-defaults": "^0.18.1",
     "@backstage/backend-plugin-api": "^1.11.0",
+    "@backstage/catalog-model": "^1.10.2",
     "@backstage/config": "^1.3.10",
     "@backstage/integration": "^2.1.3",
     "@backstage/plugin-app-backend": "^0.5.19",

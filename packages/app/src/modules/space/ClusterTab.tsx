@@ -85,7 +85,7 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
                       </Grid>
                       <Grid item xs={12} md={3}>
                         <StatTile label="Replicas ready" value={dep ? <span style={{ color: color(dep.ready === dep.replicas && dep.replicas > 0, dep.ready === 0) }}>{dep.ready} / {dep.replicas}</span> : '—'}
-                          delta={k8s?.readable === false ? 'namespace not readable — sync the app (it creates the RoleBinding)' : undefined} />
+                          delta={k8s?.readable === false ? 'namespace not readable yet — the platform creates its read permission with the app (~3 min)' : undefined} />
                       </Grid>
                       <Grid item xs={12} md={6}>
                         <StatTile label="Image running" value={<span style={{ fontSize: 14, wordBreak: 'break-all' }}>{dep?.image ?? '—'}</span>} />

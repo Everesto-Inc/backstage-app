@@ -1,4 +1,4 @@
-import { argoRbacCsv, expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
+import { argoRbacCsv, codeowners, expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
 
 describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
@@ -21,6 +21,10 @@ describe('rulesetBody', () => {
     expect(r.conditions.ref_name.include).toEqual(['~DEFAULT_BRANCH']);
     expect(r.rules.map(x => x.type).sort()).toEqual(['deletion', 'non_fast_forward', 'pull_request']);
     expect(r.enforcement).toBe('active');
+  });
+  it('four eyes: 1 approval, code owners, stale approvals dismissed, last pusher cannot approve', () => {
+    const pr = (r.rules.find(x => x.type === 'pull_request') as any).parameters;
+    expect(pr).toMatchObject({ required_approving_review_count: 1, require_code_owner_review: true, dismiss_stale_reviews_on_push: true, require_last_push_approval: true });
   });
   it('only the Backstage app and org admins can bypass', () => {
     expect(r.bypass_actors).toEqual([
@@ -45,8 +49,11 @@ describe('expandEntityAdmins', () => {
 describe('argoRbacCsv', () => {
   const csv = argoRbacCsv(['orchid']);
   const has = (line: string) => csv.split('\n').includes(line);
-  it('developers: get + sync only, in their space', () => {
-    expect(has('p, role:orchid-developer, applications, sync, orchid/*, allow')).toBe(true);
+  it('developers (and maintainers): get everything, sync DEV only; managers sync prod too', () => {
+    expect(has('p, role:orchid-developer, applications, sync, orchid/dev-*, allow')).toBe(true);
+    expect(has('p, role:orchid-developer, applications, sync, orchid/*, allow')).toBe(false);
+    expect(has('p, role:orchid-manager, applications, sync, orchid/*, allow')).toBe(true);
+    expect(has('p, role:orchid-developer, applications, get, orchid/*, allow')).toBe(true);
     expect(csv).not.toMatch(/role:orchid-developer, applications, (delete|create)/);
   });
   it('maintainers may delete but not create; managers create, update, delete', () => {
@@ -58,5 +65,19 @@ describe('argoRbacCsv', () => {
     expect(has('g, Everesto-Inc:orchid-developers, role:orchid-developer')).toBe(true);
     expect(has('g, Everesto-Inc:platform-team, role:admin')).toBe(true);
     expect(csv).not.toContain('*/*');
+  });
+});
+
+describe('codeowners', () => {
+  it('CI repo: CI files and the catalog entry need a maintainer or manager', () => {
+    const c = codeowners('orchid', 'ci');
+    expect(c).toMatch(/^\/\.github\/ +@Everesto-Inc\/orchid-maintainers @Everesto-Inc\/orchid-managers$/m);
+    expect(c).toMatch(/^\/catalog-info\.yaml +@Everesto-Inc\/orchid-maintainers/m);
+  });
+  it('gitops repo: prod needs a MANAGER (last match wins)', () => {
+    const lines = codeowners('orchid', 'gitops').split('\n').filter(l => l && !l.startsWith('#'));
+    expect(lines[0]).toMatch(/^\* +@Everesto-Inc\/orchid-maintainers/);
+    expect(lines.find(l => l.startsWith('/apps/prod/'))).toMatch(/@Everesto-Inc\/orchid-managers$/);
+    expect(lines.find(l => l.startsWith('/apps/prod/'))).not.toContain('maintainers');
   });
 });

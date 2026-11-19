@@ -16,10 +16,10 @@
  *
  * Split: everestoManifests (pure YAML) · everestoInfisical · everestoRunbook · everestoTenants · this file = the flows.
  */
-import { DeploymentInput, NS_KEY, Env, NAME, appProject, application, deployment, devHost, err, externalSecret, header, ingress, kustomization, namespace, ns, roleBinding, secretStore, service } from './everestoManifests';
+import { DeploymentInput, NS_KEY, Env, NAME, appProject, application, deployment, devHost, err, externalSecret, header, ingress, kustomization, ns, secretStore, service } from './everestoManifests';
 import { infisical, infisicalDelete, infisicalSetup } from './everestoInfisical';
 import { applySecretsCmd, mkdocs, runbook } from './everestoRunbook';
-import { PLATFORM_FILES, PLATFORM_REPO, nsKeyFree, nsKeyOf, platformStore, rotateEsoLogin, tenantYaml, writeTenant } from './everestoTenants';
+import { PLATFORM_FILES, PLATFORM_REPO, nsKeyFree, nsKeyOf, sizeOf, platformStore, rotateEsoLogin, tenantYaml, writeTenant } from './everestoTenants';
 import { Config } from '@backstage/config';
 import { component, findDoc, infisicalStore, kustomizeTag, setKustomizeTag } from './everestoYaml';
 import { gh, githubToken } from './everestoActions';
@@ -92,8 +92,6 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   await commit(token, gitops, `CD for ${repo}: apps/dev (Backstage, by ${who})`, [
     { path: 'apps/dev/kustomization.yaml', content: kustomization(image, last.tag, nsKey, 'dev', d.publicUrl !== false) },
     ...(d.publicUrl !== false ? [{ path: 'apps/dev/ingress.yaml', content: ingress(repo) }] : []),
-    { path: 'apps/dev/namespace.yaml', content: namespace(project, nsKey, 'dev') },
-    { path: 'apps/dev/rolebinding-backstage.yaml', content: roleBinding(repo) },
     { path: 'apps/dev/deployment.yaml', content: deployment(repo, image, project, 'dev', d) },
     { path: 'apps/dev/service.yaml', content: service(repo, d.port) },
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
@@ -109,13 +107,13 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/namespace: ${nsKey}\n    everesto.live/url-dev: https://${devHost(repo)}\n    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/namespace: ${nsKey}\n${d.publicUrl !== false ? `    everesto.live/url-dev: https://${devHost(repo)}\n` : ''}    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
   // 4. ArgoCD objects via git (app-of-apps): login (ESO), secret store, Application <repo>-dev — no kubectl per app
   const esoSlug = await rotateEsoLogin(config, repo, who);
-  await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev'], inf.projectSlug, inf.url, nsKey), `tenants: ${project}/${repo} dev (Backstage, by ${who})`, inf.url, esoSlug);
+  await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev'], inf.projectSlug, inf.url, nsKey, { memoryMi: d.memoryMi, replicas: d.replicas }), `tenants: ${project}/${repo} dev (Backstage, by ${who})`, inf.url, esoSlug);
   done.push(`ArgoCD app dev-${repo} + its secret store + login: committed to ${PLATFORM_REPO}/platform/tenants — ArgoCD creates them within ~3 min, then click Sync`);
   const commands: { title: string; cmd: string; secret?: boolean }[] = [];
   if (!(await argoApp('platform-tenants'))?.exists) {
@@ -180,8 +178,6 @@ export async function promote(config: Config, repo: string, refs: string[], who:
       },
       { path: 'apps/prod/deployment.yaml', content: devDep.replaceAll('everesto.live/env: dev', 'everesto.live/env: prod').replace(`${repo}-gitops / dev`, `${repo}-gitops / prod`) },
       { path: 'apps/prod/service.yaml', content: devSvc },
-      { path: 'apps/prod/namespace.yaml', content: namespace(project, nsKey, 'prod') },
-      { path: 'apps/prod/rolebinding-backstage.yaml', content: roleBinding(repo) },
       { path: 'apps/prod/externalsecret.yaml', content: externalSecret(repo, project, 'prod') },
       { path: 'argocd/argocd-prod.yaml', content: `${header('argocd-prod.yaml', gitops, '# AFTER the first promote PR is merged\n')}${secretStore(repo, project, 'prod', slug, url, nsKey)}---\n${application(repo, project, 'prod', nsKey)}` },
     );
@@ -194,7 +190,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     commands.push(
       { title: '1. Merge the pull request on GitHub (link above)', cmd: '# GitHub → Merge pull request' },
       { title: `2. Set the real prod secrets: Backstage → ${gitops} → Secrets → prod (they are CHANGE_ME)`, cmd: '# Backstage → Secrets tab → prod' },
-      { title: `3. ArgoCD app prod-${repo} appears by itself (~3 min after this promote) → Sync — creates namespace ${ns(nsKey, 'prod')}, Deployment, Service, ExternalSecret`, cmd: sync },
+      { title: `3. ArgoCD app prod-${repo} appears by itself (~3 min after this promote) → Sync — creates Deployment, Service, ExternalSecret in ${ns(nsKey, 'prod')} (the namespace + its limits come from the platform)`, cmd: sync },
       { title: '4. Check (after ~30 s)', cmd: check },
     );
   } else {
@@ -209,7 +205,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     // first promote: the prod store + Application <repo>-prod join the tenant file (ArgoCD creates them)
     const st = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
     const { slug = '', url = '' } = infisicalStore(st);
-    if (slug && url) await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev', 'prod'], slug, url, nsKey), `tenants: ${project}/${repo} prod (Backstage, by ${who})`, url);
+    if (slug && url) await writeTenant(token, project, repo, tenantYaml(repo, project, ['dev', 'prod'], slug, url, nsKey, await sizeOf(token, repo)), `tenants: ${project}/${repo} prod (Backstage, by ${who})`, url);
   }
 
   const branch = `promote-${devTag}`;

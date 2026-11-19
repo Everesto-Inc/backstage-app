@@ -27,6 +27,9 @@ import { Config } from '@backstage/config';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import sodium from 'libsodium-wrappers';
 import { generateKeyPairSync } from 'node:crypto';
+import { registerApp as registerAppInRegistry } from './everestoRegistry';
+
+const OWNER_ORG = 'Everesto-Inc';
 
 const GH = 'https://api.github.com';
 
@@ -189,6 +192,33 @@ const parseRepoUrl = (repoUrl: string) => {
   if (!owner || !repo) throw new Error(`Invalid repoUrl: ${repoUrl}`);
   return { owner, repo };
 };
+
+/** Register the new repo in the app registry (platform-controlled: which space owns it). Runs right after publish. */
+function registerApp(config: Config, entityOf: (space: string) => Promise<string>) {
+  return createTemplateAction({
+    id: 'everesto:app:register',
+    description: 'Record which DevOps Space owns the new repository (everesto-catalog/platform/apps.yaml)',
+    schema: {
+      input: {
+        project: z => z.string().describe('System entity ref of the space, e.g. system:default/orchid'),
+        repoUrl: z => z.string().describe('github.com?owner=Everesto-Inc&repo=<name>'),
+      },
+    },
+    async handler(ctx) {
+      const space = ctx.input.project.replace(/^system:(default\/)?/, '');
+      const { repo } = parseRepoUrl(ctx.input.repoUrl);
+      // same membership rule as everesto:space:require-member (checked again: this action writes platform data)
+      const groups = (ctx.user?.entity?.relations ?? []).filter(r => r.type === 'memberOf').map(r => r.targetRef);
+      const entity = await entityOf(space);
+      const ok = groups.includes('group:default/platform-team') || (entity !== '' && groups.includes(`group:default/${entity}-admins`))
+        || ['managers', 'maintainers', 'developers'].some(r => groups.includes(`group:default/${space}-${r}`));
+      if (!ok) throw new Error(`${ctx.user?.ref ?? 'you'} is not a member of space ${space}`);
+      const token = await githubToken(config, OWNER_ORG);
+      await registerAppInRegistry(token, repo, space, (ctx.user?.ref ?? 'scaffolder').replace(/^user:default\//, ''));
+      ctx.logger.info(`${repo} registered to space ${space}`);
+    },
+  });
+}
 
 function sonarqubeSetup(config: Config) {
   return createTemplateAction({
@@ -353,7 +383,7 @@ export const everestoActionsModule = createBackendModule({
         const entityOf = async (space: string) => String((await catalog.getEntityByRef(
           `system:default/${space}`, { credentials: await auth.getOwnServiceCredentials() },
         ))?.spec?.domain ?? '');
-        scaffolder.addActions(requireSpaceMember(entityOf), sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
+        scaffolder.addActions(requireSpaceMember(entityOf), registerApp(config, entityOf), sonarqubeSetup(config), gitopsAddApp(config), githubSecureRepo(config));
       },
     });
   },
