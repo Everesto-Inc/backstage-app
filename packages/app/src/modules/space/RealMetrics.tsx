@@ -87,7 +87,9 @@ export const RealCiMetrics = ({ entity }: { entity: Entity }) => {
   const c = useStyles();
   const { value: d, loading, error } = useInsights(entity);
   if (loading) return <Box px={3} pb={2}><Muted>Loading pipeline data…</Muted></Box>;
-  if (error || !d?.exists) return <Box px={3} pb={2}><Muted>No pipeline data yet{error ? ` (${error.message})` : ''}.</Muted></Box>;
+  if (error) return <Box px={3} pb={2}><Bad>{error.message}</Bad></Box>;
+  if (d?.problem) return <Box px={3} pb={2}><Bad>{d.problem}</Bad></Box>;
+  if (!d?.exists || !(d.runs ?? []).length) return <Box px={3} pb={2}><Muted>No CI run yet — merge to main or click Run build.</Muted></Box>;
   const last = d.lastMainRun ?? d.runs?.[0];
   const commits = d.commitsPerDay ?? [];
   const s = d.sonar;

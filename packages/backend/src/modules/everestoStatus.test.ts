@@ -1,4 +1,5 @@
 import { Raw, explainStatus } from './everestoStatus';
+import { githubProblem } from './everestoInsights';
 
 const base: Raw = {
   env: 'dev', repo: 'python-backend', namespace: 'dev-python', clusterReadable: true, gitConfigured: true,
@@ -77,5 +78,15 @@ describe('explainStatus', () => {
   it('local dev (no cluster) → one honest line', () => {
     const steps = explainStatus({ ...base, clusterReadable: false });
     expect(steps.map(s => s.id)).toEqual(['git', 'cluster']);
+  });
+});
+
+describe('githubProblem', () => {
+  it('turns GitHub statuses into actions', () => {
+    expect(githubProblem(200, 'x')).toBeUndefined();
+    expect(githubProblem(404, 'x')).toContain('Delete application');
+    expect(githubProblem(401, 'x')).toContain('platform team');
+    expect(githubProblem(403, 'x')).toContain('rate limit');
+    expect(githubProblem(503, 'x')).toContain('try again');
   });
 });

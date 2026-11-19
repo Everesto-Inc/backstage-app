@@ -1,4 +1,4 @@
-import { discoveryApiRef, fetchApiRef, useApi } from '@backstage/core-plugin-api';
+import { useEveresto } from './api';
 import { Entity } from '@backstage/catalog-model';
 import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 
@@ -22,6 +22,7 @@ export type Run = {
 
 export type Insights = {
   exists: boolean;
+  problem?: string; // GitHub could not answer for this repo (not found, no access, rate limit…) — plain words
   repoUrl?: string;
   runs?: Run[];
   lastMainRun?: Run;
@@ -68,17 +69,13 @@ export const insightsTarget = (e: Entity) => {
 };
 
 export const useInsights = (e: Entity | undefined, enabled = true) => {
-  const discovery = useApi(discoveryApiRef);
-  const fetchApi = useApi(fetchApiRef);
+  const api = useEveresto(); // human error messages (session expired, GitHub unreachable, …)
   return useAsyncRetry(async (): Promise<Insights | undefined> => {
     if (!e || !enabled) return undefined;
     const { repo, project, app } = insightsTarget(e);
     // SonarQube switched off (annotation absent) → backend skips it, no stale measures
     const sonar = e.metadata.annotations?.['sonarqube.org/project-key'] ?? '0';
-    const base = await discovery.getBaseUrl('everesto');
-    const res = await fetchApi.fetch(`${base}/pipeline/${encodeURIComponent(repo)}?project=${encodeURIComponent(project)}&app=${encodeURIComponent(app)}&sonar=${encodeURIComponent(sonar)}`);
-    if (!res.ok) throw new Error(`insights HTTP ${res.status}`);
-    return res.json();
+    return api('GET', `/pipeline/${encodeURIComponent(repo)}?project=${encodeURIComponent(project)}&app=${encodeURIComponent(app)}&sonar=${encodeURIComponent(sonar)}`);
   }, [e?.metadata.name, enabled]);
 };
 

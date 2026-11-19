@@ -71,6 +71,16 @@ async function sonarMeasures(config: Config, key: string) {
   };
 }
 
+/** Pure: why GitHub did not answer for a repo, in words a developer can act on (undefined = fine). */
+export function githubProblem(status: number, repo: string): string | undefined {
+  if (status >= 200 && status < 300) return undefined;
+  if (status === 404) return `Repository ${OWNER}/${repo} not found — deleted or renamed on GitHub? If it is gone, Edit → Delete application removes this card.`;
+  if (status === 401) return 'Backstage cannot sign in to GitHub (GitHub App) — tell the platform team.';
+  if (status === 403 || status === 429) return 'GitHub refused for now (rate limit or missing permission of the Backstage GitHub App) — try again in a few minutes; if it stays, tell the platform team.';
+  if (status >= 500) return 'GitHub is having problems right now — try again in a few minutes.';
+  return `GitHub answered HTTP ${status} — try again; if it stays, tell the platform team.`;
+}
+
 async function pipelineInsights(config: Config, repo: string, _project?: string, _app?: string, sonarKey?: string) {
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
@@ -82,6 +92,8 @@ async function pipelineInsights(config: Config, repo: string, _project?: string,
     gh(token, 'GET', `/repos/${OWNER}/${repo}/pulls?state=open&per_page=50`),
     gh(token, 'GET', `/repos/${OWNER}/${repo}/languages`),
   ]);
+  const problem = githubProblem(repoRes.status, repo);
+  if (problem) return { exists: false, problem };
   const langTotal = Object.values((langRes.json ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0) || 1;
   const code = repoRes.ok ? {
     visibility: repoRes.json.visibility as string,
@@ -187,6 +199,17 @@ export const everestoInsightsPlugin = createBackendPlugin({
       async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog, scheduler }) {
         const cache = new Map<string, { at: number; data: unknown }>();
         const router = Router();
+        // observability: every action + every slow read, with its duration (no bodies, no secrets)
+        router.use((req, res, next) => {
+          const t0 = Date.now();
+          res.on('finish', () => {
+            const ms = Date.now() - t0;
+            const line = `${req.method} ${req.path} → ${res.statusCode} in ${ms} ms`;
+            if (req.method !== 'GET') logger.info(`action ${line}`);
+            else if (ms > 1500) logger.warn(`slow ${line}`);
+          });
+          next();
+        });
         router.get('/pipeline/:repo', async (req, res) => {
           const repo = req.params.repo;
           if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(repo)) {
