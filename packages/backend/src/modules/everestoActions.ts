@@ -92,7 +92,19 @@ export function sonarApi(config: Config) {
     try { json = text ? JSON.parse(text) : undefined; } catch { json = text; }
     return { status: res.status, ok: res.ok, json };
   };
-  return { baseUrl, post };
+  /** Any method; JSON body (web API v2) — GET/DELETE without body. */
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: { authorization: auth, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    let json: any;
+    try { json = text ? JSON.parse(text) : undefined; } catch { json = text; }
+    return { status: res.status, ok: res.ok, json };
+  };
+  return { baseUrl, post, call };
 }
 
 /** Create SonarQube project + project-only analysis token → encrypted GitHub secret SONAR_TOKEN. */

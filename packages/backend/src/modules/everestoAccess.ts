@@ -22,11 +22,13 @@ const RULESET = 'everesto-main';
 
 export type AccessReport = { dryRun: boolean; actions: string[]; warnings: string[] };
 
-type Space = {
+export type Space = {
   name: string;
   members: Record<(typeof ROLES)[number], string[]>;
   ciRepos: string[];
   gitopsRepos: string[];
+  viewers?: string[];        // read-only members (no GitHub team needed — repos are public)
+  sonarProjects?: string[];  // SonarQube project keys of the space's applications
 };
 
 const slugOf = (e: any) => String(e.metadata?.annotations?.['github.com/project-slug'] ?? '').split('/')[1];
@@ -64,6 +66,8 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
     return {
       name,
       members,
+      viewers: ((groups.find(g => g.metadata.name === `${name}-viewers`)?.spec?.members ?? []) as string[]).map(m => m.replace(/^user:(default\/)?/, '').toLowerCase()),
+      sonarProjects: comps.filter(inSpace).map(e => e.metadata?.annotations?.['sonarqube.org/project-key']).filter(Boolean),
       ciRepos: comps.filter(inSpace).map(slugOf).filter(Boolean),
       gitopsRepos: res.filter(e => inSpace(e) && e.spec?.type === 'gitops').map(slugOf).filter(Boolean),
     };

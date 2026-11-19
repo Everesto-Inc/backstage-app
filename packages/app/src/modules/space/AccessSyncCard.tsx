@@ -29,11 +29,12 @@ export const AccessSyncCard = () => {
 
   return (
     <Box mt={3} p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
-      <Typography variant="subtitle2">GitHub access (all spaces) — platform admins</Typography>
+      <Typography variant="subtitle2">Access sync: GitHub, ArgoCD, SonarQube (all spaces) — platform admins</Typography>
       <Typography variant="body2" color="textSecondary">
         Makes GitHub match the members here: org invitation, team per role (developers: push · maintainers & managers: maintain ·
         nobody admin; owners = team platform-team), main only via pull request on every space repo, and the ArgoCD roles
-        per space. Removing someone here removes them from the team.
+        per space, and SonarQube: one group per role, the space's projects private and visible only to its members.
+        Removing someone here removes them from the team. Runs by itself every 30 minutes.
       </Typography>
       <Box mt={1} display="flex" style={{ gap: 8 }}>
         <Button size="small" variant="outlined" disabled={busy} onClick={() => run(true)}>Preview (changes nothing)</Button>
