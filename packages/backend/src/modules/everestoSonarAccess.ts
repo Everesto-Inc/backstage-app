@@ -7,6 +7,8 @@
  *                 maintainers, managers      → + Administer issues / hotspots / the project
  *               the default group sonar-users (= everyone logged in) loses its rights there → other spaces see nothing
  *   owner       platform-team members → sonar-administrators
+ *   no space    projects of no DevOps Space (platform, other products): private, sonar-users loses its rights →
+ *               only the owner sees them; new projects are private by default
  *
  * People are matched by GitHub login (SonarQube "Log in with GitHub"); someone who never logged in to SonarQube
  * yet is skipped with a note and picked up on the next run. SonarQube's own GitHub team sync must stay OFF.
@@ -127,6 +129,25 @@ export async function syncSonarAccess(config: Config, spaces: Space[], dryRun: b
         if (!ALL_PERMS.includes(perm)) continue;
         await act(`${key}: take ${perm} from ${g}`, () => api.post('/api/permissions/remove_group', { projectKey: key, groupName: g, permission: perm }));
       }
+    }
+  }
+  // projects of NO space: private, only the owner (sonar-administrators) — and new projects private by default
+  const inSpaces = new Set(spaces.flatMap(sp => sp.sonarProjects ?? []));
+  const def = await call('GET', '/api/settings/values?keys=projects.default.visibility');
+  const defVis = ((def.json?.settings ?? []) as any[]).find(x => x.key === 'projects.default.visibility')?.value;
+  if (defVis !== 'private') {
+    await act('new projects private by default', () => api.post('/api/projects/update_default_visibility', { projectVisibility: 'private' }));
+  }
+  const all = await call('GET', '/api/projects/search?ps=500');
+  if (!all.ok) out.warnings.push(`SonarQube: cannot list projects (HTTP ${all.status})`);
+  for (const p of (all.json?.components ?? []) as any[]) {
+    if (inSpaces.has(p.key)) continue;
+    if (p.visibility !== 'private') await act(`make ${p.key} private (no DevOps Space → owner only)`, () => api.post('/api/projects/update_visibility', { project: p.key, visibility: 'private' }));
+    const perms = await call('GET', `/api/permissions/groups?projectKey=${encodeURIComponent(p.key)}&ps=100`);
+    const su = ((perms.json?.groups ?? []) as any[]).find(g => g.name === 'sonar-users')?.permissions ?? [];
+    for (const perm of su as string[]) {
+      if (!ALL_PERMS.includes(perm)) continue;
+      await act(`${p.key}: take ${perm} from sonar-users (no DevOps Space)`, () => api.post('/api/permissions/remove_group', { projectKey: p.key, groupName: 'sonar-users', permission: perm }));
     }
   }
   return out;
