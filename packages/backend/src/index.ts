@@ -11,6 +11,7 @@ import { permissionPolicyModule } from './modules/permissionPolicy';
 import { everestoActionsModule } from './modules/everestoActions';
 import { everestoInsightsPlugin } from './modules/everestoInsights';
 import { everestoCatalogGuardModule } from './modules/everestoCatalogGuard';
+import { techRadarPlugin } from './modules/techRadar';
 
 const backend = createBackend();
 
@@ -24,6 +25,7 @@ backend.add(import('@backstage/plugin-scaffolder-backend-module-github'));
 backend.add(everestoActionsModule);
 // /api/everesto/pipeline/:repo — real CI/CD insights for the DevOps Space pages
 backend.add(everestoInsightsPlugin);
+backend.add(techRadarPlugin); // data for the Tech Radar page (/tech-radar)
 backend.add(
   import('@backstage/plugin-scaffolder-backend-module-notifications'),
 );

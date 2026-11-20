@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@backstage-community/plugin-sonarqube-backend": "^1.4.0",
+    "@backstage-community/plugin-tech-radar-common": "1.23.0",
     "@backstage/backend-defaults": "^0.18.1",
     "@backstage/backend-plugin-api": "^1.11.0",
     "@backstage/catalog-model": "^1.10.2",

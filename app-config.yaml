@@ -13,6 +13,11 @@ app:
     - page:catalog:
         config:
           path: /
+    # Tech Radar: what the golden paths support (data: backend techRadar.ts / everesto-catalog/platform/tech-radar.yaml)
+    - page:tech-radar:
+        config:
+          pageTitle: everesto.live Tech Radar
+          subtitle: What the platform supports — adopt = golden path, hold = don't start new work with it
     # Home list: start at the top of the hierarchy (entities) and show ALL of them — the default "Owned"
     # hid e.g. blackbuck for anyone not in blackbuck-admins (only visible under "Starred").
     - catalog-filter:catalog/kind:
