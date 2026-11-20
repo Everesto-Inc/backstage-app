@@ -325,6 +325,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const dryRun = req.query.dryRun !== '0';
             const out = await runAccessSync(dryRun);
             logger.info(`access sync (${dryRun ? 'dry run' : 'APPLIED'}) by ${who}: ${out.actions.length} actions, ${out.warnings.length} warnings`);
+            if (!dryRun && out.warnings.length) logger.warn(`access sync warnings: ${out.warnings.join(' | ')}`);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
