@@ -122,7 +122,8 @@ export async function syncSonarAccess(config: Config, spaces: Space[], dryRun: b
       if (p.visibility !== 'private') await act(`make ${key} private`, () => api.post('/api/projects/update_visibility', { project: key, visibility: 'private' }));
       const perms = await call('GET', `/api/permissions/groups?projectKey=${encodeURIComponent(key)}&ps=100`);
       const have = Object.fromEntries(((perms.json?.groups ?? []) as any[]).map(g => [g.name, (g.permissions ?? []) as string[]]));
-      const want: Record<string, string[]> = { ...desiredProjectPermissions(space), 'sonar-users': [] };
+      // owner (sonar-administrators) always has full rights — a private project must stay visible to the platform team
+      const want: Record<string, string[]> = { ...desiredProjectPermissions(space), 'sonar-administrators': ADMIN, 'sonar-users': [] };
       const { add, remove } = diff(want, have);
       for (const [g, perm] of add) await act(`${key}: give ${g} ${perm}`, () => api.post('/api/permissions/add_group', { projectKey: key, groupName: g, permission: perm }));
       for (const [g, perm] of remove) {
@@ -151,6 +152,10 @@ export async function syncSonarAccess(config: Config, spaces: Space[], dryRun: b
     if (inSpaces.has(p.key)) continue;
     if (p.visibility !== 'private') await act(`make ${p.key} private (no DevOps Space → owner only)`, () => api.post('/api/projects/update_visibility', { project: p.key, visibility: 'private' }));
     const perms = await call('GET', `/api/permissions/groups?projectKey=${encodeURIComponent(p.key)}&ps=100`);
+    const admins = ((perms.json?.groups ?? []) as any[]).find(g => g.name === 'sonar-administrators')?.permissions ?? [];
+    for (const perm of ADMIN.filter(x => !(admins as string[]).includes(x))) {
+      await act(`${p.key}: give sonar-administrators ${perm} (owner sees everything)`, () => api.post('/api/permissions/add_group', { projectKey: p.key, groupName: 'sonar-administrators', permission: perm }));
+    }
     const su = ((perms.json?.groups ?? []) as any[]).find(g => g.name === 'sonar-users')?.permissions ?? [];
     for (const perm of su as string[]) {
       if (!ALL_PERMS.includes(perm)) continue;
