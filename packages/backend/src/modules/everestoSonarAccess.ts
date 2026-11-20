@@ -8,7 +8,7 @@
  *               the default group sonar-users (= everyone logged in) loses its rights there → other spaces see nothing
  *   owner       platform-team members → sonar-administrators
  *   no space    projects of no DevOps Space (platform, other products): private, sonar-users loses its rights →
- *               only the owner sees them; new projects are private by default
+ *               only the owner sees them; new projects are private by default; users can't create projects
  *
  * People are matched by GitHub login (SonarQube "Log in with GitHub"); someone who never logged in to SonarQube
  * yet is skipped with a note and picked up on the next run. SonarQube's own GitHub team sync must stay OFF.
@@ -131,6 +131,13 @@ export async function syncSonarAccess(config: Config, spaces: Space[], dryRun: b
       }
     }
   }
+  // only Backstage creates projects (Create pipeline) — logged-in users may not create their own
+  const glob = await call('GET', '/api/permissions/groups?ps=100');
+  const usersGlobal = ((glob.json?.groups ?? []) as any[]).find(g => g.name === 'sonar-users')?.permissions ?? [];
+  if ((usersGlobal as string[]).includes('provisioning')) {
+    await act('take "Create Projects" from sonar-users (Backstage creates projects)', () => api.post('/api/permissions/remove_group', { groupName: 'sonar-users', permission: 'provisioning' }));
+  }
+
   // projects of NO space: private, only the owner (sonar-administrators) — and new projects private by default
   const inSpaces = new Set(spaces.flatMap(sp => sp.sonarProjects ?? []));
   const def = await call('GET', '/api/settings/values?keys=projects.default.visibility');
