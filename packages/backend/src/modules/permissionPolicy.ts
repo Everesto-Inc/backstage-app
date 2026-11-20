@@ -11,6 +11,11 @@
  * To grant someone these rights: add them to `platform-team` in everesto-catalog/platform/org.yaml.
  */
 import { createBackendModule } from '@backstage/backend-plugin-api';
+import {
+  announcementCreatePermission,
+  announcementDeletePermission,
+  announcementUpdatePermission,
+} from '@backstage-community/plugin-announcements-common';
 import { policyExtensionPoint } from '@backstage/plugin-permission-node/alpha';
 import {
   PermissionPolicy,
@@ -53,6 +58,10 @@ const PRIVILEGED_PERMISSIONS = [
   catalogLocationDeletePermission,
   catalogEntityCreatePermission,
   catalogEntityDeletePermission,
+  // Announcements: everyone reads; only the platform team posts, edits and deletes.
+  announcementCreatePermission,
+  announcementUpdatePermission,
+  announcementDeletePermission,
 ];
 
 export class PlatformTeamPermissionPolicy implements PermissionPolicy {

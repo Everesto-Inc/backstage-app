@@ -1,4 +1,5 @@
 import { AuthorizeResult } from '@backstage/plugin-permission-common';
+import { announcementCreatePermission, announcementDeletePermission } from '@backstage-community/plugin-announcements-common';
 import { catalogEntityDeletePermission, catalogEntityReadPermission, catalogLocationCreatePermission } from '@backstage/plugin-catalog-common/alpha';
 import { taskCreatePermission } from '@backstage/plugin-scaffolder-common/alpha';
 import { PlatformTeamPermissionPolicy } from './permissionPolicy';
@@ -40,5 +41,13 @@ describe('PlatformTeamPermissionPolicy', () => {
 
   it('denies privileged actions to anonymous callers', async () => {
     expect((await policy.handle({ permission: catalogEntityDeletePermission } as any, undefined)).result).toBe(AuthorizeResult.DENY);
+  });
+});
+
+describe('announcements', () => {
+  it('only the platform team posts, edits or deletes announcements', async () => {
+    expect(await decide(announcementCreatePermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
+    expect(await decide(announcementCreatePermission, ['group:default/orchid-managers'])).toBe(AuthorizeResult.DENY);
+    expect(await decide(announcementDeletePermission, ['group:default/blackbuck-admins'])).toBe(AuthorizeResult.DENY);
   });
 });

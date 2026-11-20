@@ -26,6 +26,7 @@ backend.add(everestoActionsModule);
 // /api/everesto/pipeline/:repo — real CI/CD insights for the DevOps Space pages
 backend.add(everestoInsightsPlugin);
 backend.add(techRadarPlugin); // data for the Tech Radar page (/tech-radar)
+backend.add(import('@backstage-community/plugin-announcements-backend')); // announcements (posting: platform team only)
 backend.add(
   import('@backstage/plugin-scaffolder-backend-module-notifications'),
 );
