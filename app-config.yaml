@@ -35,6 +35,7 @@ app:
           filter: kind:component,api,resource,group,user,template,location
     - entity-content:catalog/devops-space
     - entity-content:catalog/project-pipelines
+    - entity-content:catalog/project-scorecards
     - entity-content:techdocs:
         config:
           title: Tech Docs
@@ -54,6 +55,9 @@ app:
         config:
           type: content
     - entity-card:catalog/devops-tools:
+        config:
+          type: content
+    - entity-card:catalog/scorecard:        # ← Bronze / Silver / Gold of the application
         config:
           type: content
     - entity-card:catalog-graph/relations

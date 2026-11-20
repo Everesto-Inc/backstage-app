@@ -295,6 +295,14 @@ async function secretsCtx(config: Config, repo: string) {
 
 const refresh = applySecretsCmd;
 
+/** How many secrets of an environment are still CHANGE_ME (count only — for scorecards; the caller checks membership). */
+export async function secretPlaceholders(config: Config, repo: string, env: Env): Promise<number> {
+  const { api, ws } = await secretsCtx(config, repo);
+  const r = await api('GET', `/api/v3/secrets/raw?workspaceId=${ws.id}&environment=${env}&secretPath=/`);
+  if (!r.ok) throw err(502, `Infisical: cannot list secrets (${r.status})`);
+  return ((r.json?.secrets ?? []) as any[]).filter(x => x.secretValue === 'CHANGE_ME').length;
+}
+
 export async function secretsList(config: Config, repo: string, env: Env, refs: string[]) {
   const { project, api, ws, nsKey } = await secretsCtx(config, repo);
   if (!allowed(refs, project, [...ROLE.MEMBER])) throw err(403, `only members of ${project} can see secret names`);

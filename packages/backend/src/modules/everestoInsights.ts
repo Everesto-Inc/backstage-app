@@ -21,6 +21,7 @@ import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogi
 import { gh, githubToken } from './everestoActions';
 import { syncSonarAccess } from './everestoSonarAccess';
 import { readRegistry } from './everestoRegistry';
+import { collectFacts, levelOf, scoreChecks } from './everestoScorecard';
 import { pipelineInsights } from './everestoPipeline';
 import { collectEsoState, explainStatus, probeUrl } from './everestoStatus';
 import { argoApp, podLogs, workloads } from './everestoK8s';
@@ -266,6 +267,46 @@ export const everestoInsightsPlugin = createBackendPlugin({
         });
 
         // status chain per environment: what is done, what is next, how long to wait, what to click
+        // ---- scorecards (members of the space; cached 10 min — standards, not live status) ----
+        const scoreCache = new Map<string, { at: number; data: unknown }>();
+        const reviewersOf = async (space: string) => {
+          const credentials = await auth.getOwnServiceCredentials();
+          const groups = (await catalog.getEntities({ filter: { kind: 'Group', 'metadata.name': ['developers', 'maintainers', 'managers'].map(r => `${space}-${r}`) } }, { credentials })).items;
+          return new Set(groups.flatMap(g => membersOf(g))).size;
+        };
+        const scoreOf = async (repo: string, space: string, fresh = false) => {
+          const hit = scoreCache.get(repo);
+          if (!fresh && hit && Date.now() - hit.at < 10 * 60_000) return hit.data;
+          const credentials = await auth.getOwnServiceCredentials();
+          const e = await catalog.getEntityByRef(`component:default/${repo}`, { credentials });
+          const kind = e?.spec?.type === 'repository' ? 'repo' : 'ci';
+          const facts = await collectFacts(config, repo, e?.metadata.annotations?.['sonarqube.org/project-key'], kind, await reviewersOf(space));
+          const checks = scoreChecks(facts);
+          const data = { repo, space, kind, level: levelOf(checks) ?? null, checks, at: new Date().toISOString() };
+          scoreCache.set(repo, { at: Date.now(), data });
+          return data;
+        };
+        router.get('/apps/:repo/scorecard', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const space = await member(req, repo);
+            res.json(await scoreOf(repo, space, req.query.fresh === '1'));
+          } catch (e) { fail(res, e); }
+        });
+        router.get('/spaces/:space/scorecard', async (req, res) => {
+          const { space } = req.params;
+          if (!/^[a-z0-9-]{1,63}$/.test(space)) { res.status(400).json({ error: 'invalid space' }); return; }
+          try {
+            const { refs } = await caller(req);
+            if (!allowed(refs, space, [...ROLE.MEMBER])) { res.status(403).json({ error: `only members of ${space} can see its scorecards` }); return; }
+            const registry = await readRegistry(await githubToken(config, OWNER));
+            const repos = Object.entries(registry).filter(([, s]) => s === space).map(([r]) => r).sort();
+            const apps = await Promise.all(repos.map(r => scoreOf(r, space).catch(e => ({ repo: r, space, error: String(e?.message ?? e) }))));
+            res.json({ space, apps });
+          } catch (e) { fail(res, e); }
+        });
+
         router.get('/apps/:repo/status', async (req, res) => {
           const { repo } = req.params;
           if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }

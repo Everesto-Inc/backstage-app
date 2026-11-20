@@ -35,6 +35,22 @@ export const spaceModule = createFrontendModule({
       const { ProjectPipelines } = await import('./ProjectPipelines');
       return <ProjectPipelines />;
     }),
+    tab('project-scorecards', '/scorecards', 'Scorecards', 'kind:system', async () => {
+      const { SpaceScorecards } = await import('./Scorecard');
+      return <SpaceScorecards />;
+    }),
+    // Scorecard of an application (Bronze / Silver / Gold) on its Overview
+    EntityCardBlueprint.make({
+      name: 'scorecard',
+      params: {
+        filter: 'kind:component',
+        type: 'content',
+        loader: async () => {
+          const { ScorecardCard } = await import('./Scorecard');
+          return <ScorecardCard />;
+        },
+      },
+    }),
     tab('project-startup', '/startup-guide', 'Startup Guide', 'kind:system', async () => {
       const { ProjectStartupGuide } = await import('./ProjectDocsApis');
       return <ProjectStartupGuide />;
