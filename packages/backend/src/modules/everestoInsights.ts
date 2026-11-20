@@ -16,6 +16,7 @@ import { coreServices, createBackendPlugin } from '@backstage/backend-plugin-api
 import Router from 'express-promise-router';
 import express from 'express';
 import { catalogServiceRef } from '@backstage/plugin-catalog-node';
+import { notificationService } from '@backstage/plugin-notifications-node';
 import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
 import { gh, githubToken } from './everestoActions';
@@ -44,9 +45,21 @@ export const everestoInsightsPlugin = createBackendPlugin({
         auth: coreServices.auth,
         catalog: catalogServiceRef,
         scheduler: coreServices.scheduler,
+        notifications: notificationService,
       },
-      async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog, scheduler }) {
+      async init({ httpRouter, config, logger, httpAuth, userInfo, auth, catalog, scheduler, notifications }) {
         const cache = new Map<string, { at: number; data: unknown }>();
+        // ---- notifications (bell in the sidebar): fire-and-forget, never fail the action; the actor is not notified ----
+        const notify = (to: string[], payload: { title: string; description?: string; link?: string; severity?: 'low' | 'normal' | 'high' }, actor?: string) => {
+          if (!to.length) return;
+          notifications.send({
+            recipients: { type: 'entity', entityRef: to, ...(actor ? { excludeEntityRef: `user:default/${actor}` } : {}) },
+            payload: { topic: 'everesto', ...payload },
+          }).catch(e => logger.warn(`notification "${payload.title}" not sent: ${e}`));
+        };
+        const groupsOf = (space: string, roles: string[]) => roles.map(r => `group:default/${space}-${r}`);
+        const spaceOfRepo = async (repo: string) => (await readRegistry(await githubToken(config, OWNER)))[repo.replace(/-gitops$/, '')];
+        const appLink = (repo: string) => `/catalog/default/component/${repo}`;
         const router = Router();
         // observability: every action + every slow read, with its duration (no bodies, no secrets)
         router.use((req, res, next) => {
@@ -137,9 +150,11 @@ export const everestoInsightsPlugin = createBackendPlugin({
               const g = await catalog.getEntityByRef(`resource:default/${r}-gitops`, { credentials });
               if (g?.metadata.uid) await catalog.removeEntityByUid(g.metadata.uid, { credentials });
             };
+            const space = await spaceOfRepo(repo).catch(() => undefined);
             const out = await deleteApp(config, repo, refs, unregister);
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`application ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            if (space) notify(groupsOf(space, ['managers']), { title: `${repo} was deleted`, description: `Application ${repo} (repo, deployment, secrets) was deleted by ${who}.`, link: `/catalog/default/system/${space}` }, who);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
@@ -169,6 +184,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await createDeployment(config, repo, input, refs, who);
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`deployment for ${repo} created by ${who}: ${out.done.join(', ')}`); // never log out.commands (secret)
+            spaceOfRepo(repo).then(space => space && notify(groupsOf(space, ['maintainers', 'managers']), {
+              title: `${repo}: deployment created`, description: `By ${who}. ArgoCD app dev-${repo} appears within ~3 min — then Sync. Status: CD tab.`, link: `/catalog/default/resource/${repo}-gitops/cd`,
+            }, who), () => undefined);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
@@ -182,6 +200,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await deleteDeployment(config, repo, refs, who, resourceUnregister(await auth.getOwnServiceCredentials()));
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`deployment of ${repo} DELETED by ${who}: ${out.done.join(', ')}`);
+            spaceOfRepo(repo).then(space => space && notify(groupsOf(space, ['managers']), {
+              title: `${repo}: deployment deleted`, description: `By ${who} — gitops repo, ArgoCD apps and Infisical project removed.`, link: appLink(repo),
+            }, who), () => undefined);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
@@ -307,6 +328,56 @@ export const everestoInsightsPlugin = createBackendPlugin({
           } catch (e) { fail(res, e); }
         });
 
+        // ---- home page: my spaces (roles + scorecard summary) and my pull requests ----
+        router.get('/me/spaces', async (req, res) => {
+          try {
+            const { refs } = await caller(req);
+            const owner = refs.includes('group:default/platform-team');
+            const credentials = await auth.getOwnServiceCredentials();
+            const systems = (await catalog.getEntities({ filter: { kind: 'System', 'metadata.labels.everesto.live/level': 'space' } }, { credentials })).items;
+            const registry = await readRegistry(await githubToken(config, OWNER));
+            const mine = systems.map(sys => {
+              const space = sys.metadata.name;
+              const roles = ['managers', 'maintainers', 'developers', 'viewers'].filter(r => refs.includes(`group:default/${space}-${r}`));
+              return { space, title: sys.metadata.title ?? space, entity: String(sys.spec?.domain ?? ''), roles: owner ? ['owner', ...roles] : roles };
+            }).filter(x => x.roles.length);
+            const out = await Promise.all(mine.map(async x => {
+              const repos = Object.entries(registry).filter(([, sp]) => sp === x.space).map(([r]) => r);
+              const cards = await Promise.all(repos.map(r => scoreOf(r, x.space).catch(() => undefined))) as any[];
+              const ok = cards.filter(Boolean);
+              return {
+                ...x,
+                apps: repos.length,
+                silverPlus: ok.filter(c => c.level === 'silver' || c.level === 'gold').length,
+                failingCi: ok.filter(c => c.checks?.some((k: any) => k.id === 'ci' && k.state === 'fail')).length,
+                toFix: ok.reduce((n, c) => n + (c.checks ?? []).filter((k: any) => k.state === 'fail').length, 0),
+              };
+            }));
+            res.json({ owner, spaces: out });
+          } catch (e) { fail(res, e); }
+        });
+        const prCache = new Map<string, { at: number; data: unknown }>();
+        router.get('/me/pull-requests', async (req, res) => {
+          try {
+            const { who } = await caller(req);
+            const hit = prCache.get(who);
+            if (hit && Date.now() - hit.at < 2 * 60_000) { res.json(hit.data); return; }
+            const token = await githubToken(config, OWNER);
+            const search = async (q: string) => {
+              const r = await gh(token, 'GET', `/search/issues?q=${encodeURIComponent(`is:pr is:open org:${OWNER} ${q}`)}&sort=updated&per_page=20`);
+              if (!r.ok) throw err(r.status === 403 || r.status === 429 ? 429 : 502, 'GitHub search is busy — try again in a minute');
+              return ((r.json?.items ?? []) as any[]).map(i => ({
+                repo: String(i.repository_url ?? '').split('/').pop(), number: i.number, title: i.title, url: i.html_url,
+                author: i.user?.login, updatedAt: i.updated_at, draft: !!i.draft,
+              }));
+            };
+            const [toReview, mine] = await Promise.all([search(`review-requested:${who}`), search(`author:${who}`)]);
+            const data = { toReview, mine };
+            prCache.set(who, { at: Date.now(), data });
+            res.json(data);
+          } catch (e) { fail(res, e); }
+        });
+
         router.get('/apps/:repo/status', async (req, res) => {
           const { repo } = req.params;
           if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
@@ -416,6 +487,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
               await catalog.refreshEntity(ref, { credentials }).catch(() => undefined);
             }
             logger.info(`members of ${space} (${roles.join(',')}) ${remove ? '-' : '+'} ${login} by ${who}: ${out.done.join(', ')}`);
+            notify([`user:default/${login.toLowerCase()}`], remove
+              ? { title: `Your ${roles[0]} role in ${sys.metadata.title ?? space} was removed`, description: `By ${who}.`, link: '/' }
+              : { title: `You were added to ${sys.metadata.title ?? space}`, description: `As ${roles.join(' + ')}, by ${who}. Start with the space's Startup Guide.`, link: `/catalog/default/system/${space}/startup-guide` }, who);
             res.json(out);
           } catch (e) { fail(res, e); }
         };
@@ -448,6 +522,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await createSpace(config, entity, name, str(req.body?.description).slice(0, 200), await takenNames(), who);
             await catalog.refreshEntity('location:default/everesto-catalog', { credentials }).catch(() => undefined);
             logger.info(`space ${name} created in ${entity} by ${who}`);
+            notify([`group:default/${entity}-admins`, 'group:default/platform-team'], { title: `New DevOps Space: ${name}`, description: `Created in ${entity} by ${who}. Add people in Members.`, link: `/catalog/default/system/${name}/members` }, who);
             // GitHub teams for the roles — in the background (the 30-min sync would do it too)
             runAccessSync(false).then(r => logger.info(`access sync after new space ${name}: ${r.actions.length} actions`), e => logger.warn(`access sync after new space ${name} failed: ${e}`));
             res.json(out);
@@ -469,6 +544,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await deploy(config, repo, tag, refs, who);
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`deploy ${repo} dev ${out.from} → ${out.to} by ${who}`);
+            spaceOfRepo(repo).then(space => space && notify(groupsOf(space, ['developers', 'maintainers', 'managers']), {
+              title: `${repo}: ${out.to} ready for dev`, description: `By ${who} (was ${out.from ?? 'none'}). Click Sync on dev-${repo} in ArgoCD to roll it out.`, link: `https://argocd.everesto.live/applications/argocd/dev-${repo}`,
+            }, who), () => undefined);
             res.json(out);
           } catch (e) { fail(res, e); }
         });
@@ -498,6 +576,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const out = await promote(config, repo, refs, who);
             for (const k of cache.keys()) if (k.startsWith(`${repo}|`)) cache.delete(k);
             logger.info(`promote ${repo} ${out.from} → ${out.to} by ${who}: ${out.url}`);
+            spaceOfRepo(repo).then(space => space && notify(groupsOf(space, ['managers']), {
+              title: `${repo}: promote to prod waiting for your approval`, description: `${out.from ?? 'new'} → ${out.to}, opened by ${who}. A manager approves the pull request, then Sync prod-${repo}.`, link: out.url, severity: 'high',
+            }, who), () => undefined);
             res.json(out);
           } catch (e) { fail(res, e); }
         });

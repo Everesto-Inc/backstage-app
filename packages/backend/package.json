@@ -37,6 +37,7 @@
     "@backstage/plugin-kubernetes-backend": "^0.21.12",
     "@backstage/plugin-mcp-actions-backend": "^0.2.3",
     "@backstage/plugin-notifications-backend": "^0.6.10",
+    "@backstage/plugin-notifications-node": "^0.2.31",
     "@backstage/plugin-permission-backend": "^0.7.17",
     "@backstage/plugin-permission-common": "^0.9.12",
     "@backstage/plugin-permission-node": "^0.11.5",

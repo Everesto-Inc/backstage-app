@@ -1,52 +1,35 @@
 import { createFrontendModule } from '@backstage/frontend-plugin-api';
-import { HomePageWidgetBlueprint } from '@backstage/plugin-home-react/alpha';
-import { MarkdownContent } from '@backstage/core-components';
+import { HomePageLayoutBlueprint, HomePageWidgetBlueprint, HomePageLayoutProps } from '@backstage/plugin-home-react/alpha';
 
-const content = `
-## Welcome to Backstage! 👋
+/**
+ * everesto.live home page (/):
+ *   greeting · My DevOps Spaces (roles + scorecard summary) · Pull requests (to review / mine) · Announcements ·
+ *   Platform tools · Recently visited · Starred.  Widgets live in ./widgets (lazy-loaded); this file only wires them.
+ */
+const widget = (name: string, title: string, description: string, load: () => Promise<{ Content: () => JSX.Element }>) =>
+  HomePageWidgetBlueprint.make({ name, params: { name, title, description, components: load } });
 
-Backstage is your developer portal — a single place to manage all your
-software, services, and documentation.
+const myWidgets = [
+  widget('everesto-spaces', 'My DevOps Spaces', 'Your spaces, your role and how their applications score',
+    () => import('./widgets').then(m => ({ Content: m.MySpaces }))),
+  widget('everesto-prs', 'Pull requests', 'Waiting for your review, and your own open pull requests',
+    () => import('./widgets').then(m => ({ Content: m.PullRequests }))),
+  widget('everesto-tools', 'Platform tools', 'The tools behind the portal',
+    () => import('./widgets').then(m => ({ Content: m.PlatformTools }))),
+];
 
-### Quick Start
-
-- **Explore the catalog** — Browse all your organization's software in
-  the [Software Catalog](/catalog)
-- **Create something new** — Use a [Software Template](/create) to
-  scaffold a new project in minutes
-- **Read the docs** — Find technical documentation for any service
-  right from its catalog page
-
-### Helpful Links
-
-- [Backstage Documentation](https://backstage.io/docs)
-- [Customizing Your Homepage](https://backstage.io/docs/getting-started/homepage)
-- [Adding Plugins](https://backstage.io/docs/plugins)
-- [Contributing](https://github.com/backstage/backstage/blob/master/CONTRIBUTING.md)
-
-### How to Edit This Card
-
-This widget is defined in \`packages/app/src/modules/home/homeModule.tsx\`.
-You can update the markdown content there to welcome your team with
-your own links and getting started tips.
-
-To remove this card entirely, delete the getting started widget and
-remove it from the home module's extensions array in this file.
-`;
-
-const gettingStartedWidget = HomePageWidgetBlueprint.make({
-  name: 'getting-started',
+/** Fixed two-column layout: our widgets first, then the built-in Recently visited / Starred; other widgets are not shown. */
+const layout = HomePageLayoutBlueprint.make({
+  name: 'everesto',
   params: {
-    name: 'GettingStarted',
-    title: 'Getting Started',
-    description: 'Tips and links to help you get started with Backstage',
-    components: async () => ({
-      Content: () => <MarkdownContent content={content} />,
-    }),
+    loader: async () => {
+      const { HomeLayout } = await import('./widgets');
+      return (props: HomePageLayoutProps) => <HomeLayout {...props} />;
+    },
   },
 });
 
 export const homeModule = createFrontendModule({
   pluginId: 'home',
-  extensions: [gettingStartedWidget],
+  extensions: [...myWidgets, layout],
 });

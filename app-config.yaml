@@ -10,9 +10,13 @@ app:
     # The catalog is mounted at /catalog by default but is overridden here to
     # serve as the root page. To switch to the Home page, comment out the
     # catalog path override and uncomment the path override under page:home below.
-    - page:catalog:
+    # Home page at "/", the catalog list at "/catalog"
+    - page:home:
         config:
           path: /
+    - page:catalog:
+        config:
+          path: /catalog
     # Tech Radar: what the golden paths support (data: backend techRadar.ts / everesto-catalog/platform/tech-radar.yaml)
     - page:tech-radar:
         config:
@@ -30,8 +34,8 @@ app:
     # Visit tracking records which pages users navigate to and is disabled by default.
     # Enable it to populate the Most Visited and Recently Visited widgets on the Home page.
     # Visit data is stored via UserSettings storage if available, otherwise browser localStorage.
-    # - api:home/visits: true
-    # - app-root-element:home/visit-listener: true
+    - api:home/visits: true
+    - app-root-element:home/visit-listener: true
 
     # Entities (domain) and projects (system) use the DevOps Space pages instead of the
     # generic Overview (packages/app/src/modules/space). Listed order = tab order.
@@ -71,77 +75,11 @@ app:
     - theme:app/light: false
     - theme:app/dark: false
 
-    # Random Joke widget calls an external joke API from the browser — fails (prod CSP blocks it).
-    - home-page-widget:home/random-joke: false
-    - home-page-widget:home/toolkit:
-        config:
-          tools:
-            - url: https://backstage.io/docs
-              label: Docs
-              icon: docs
-            - url: https://github.com/backstage/backstage
-              label: GitHub
-              icon: github
-            - url: https://github.com/backstage/backstage/blob/master/CONTRIBUTING.md
-              label: Contributing
-              icon: docs
-            - url: https://backstage.io/plugins
-              label: Plugins Directory
-              icon: kind:component
-            - url: https://github.com/backstage/backstage/issues/new/choose
-              label: Submit New Issue
-              icon: github
-    - home-page-widget:home/world-clock:
-        config:
-          clockConfigs:
-            - label: NYC
-              timeZone: America/New_York
-            - label: UTC
-              timeZone: UTC
-            - label: STO
-              timeZone: Europe/Stockholm
-            - label: TYO
-              timeZone: Asia/Tokyo
-    - page:home:
-        config:
-          # path: /
-          defaultConfig:
-            - component: HomePageSearchBar
-              column: 0
-              row: 0
-              width: 12
-              height: 2
-              deletable: false
-            - component: GettingStarted
-              column: 0
-              row: 1
-              width: 4
-              height: 11
-            - component: HomePageStarredEntities
-              column: 4
-              row: 2
-              width: 4
-              height: 4
-            - component: HomePageToolkit
-              column: 4
-              row: 6
-              width: 4
-              height: 3
-            - component: HomePageWorldClock
-              column: 8
-              row: 6
-              width: 4
-              height: 3
-            - component: HomePageMostVisited
-              column: 4
-              row: 9
-              width: 4
-              height: 4
-            - component: HomePageRecentlyVisited
-              column: 8
-              row: 9
-              width: 4
-              height: 4
+    # Home page = our own layout + widgets (packages/app/src/modules/home). Built-ins we don't show:
+    - home-page-widget:home/random-joke: false   # external joke API, blocked by the prod CSP anyway
+    - home-page-widget:home/toolkit: false        # replaced by "Platform tools"
+    - home-page-widget:home/world-clock: false
+    - home-page-widget:home/most-visited: false
 
 organization:
   name: My Company
