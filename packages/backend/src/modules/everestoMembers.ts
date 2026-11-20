@@ -36,7 +36,7 @@ export function canManageRole(refs: string[], space: string, role: SpaceRole, en
 // group members are read/edited with a real YAML parser (comments + other documents untouched)
 export { groupMembers, setGroupMembers } from './everestoYaml';
 
-const userDoc = (name: string, login: string, email?: string, displayName?: string) => `---
+const userDoc = (name: string, login: string, id: number, email?: string, displayName?: string) => `---
 apiVersion: backstage.io/v1alpha1
 kind: User
 metadata:
@@ -44,6 +44,7 @@ metadata:
 spec:
   profile:
     displayName: ${JSON.stringify(displayName || login)}${email ? `\n    email: ${email}` : ''}
+    picture: https://avatars.githubusercontent.com/u/${id}   # GitHub profile picture
   memberOf: []
 `;
 
@@ -59,7 +60,7 @@ export async function addMember(config: Config, space: string, roles: SpaceRole[
   const files: { path: string; content: string }[] = [];
   const done: string[] = [];
   if (!findDoc(org, 'User', name)) {
-    files.push({ path: 'platform/org.yaml', content: `${org.trimEnd()}\n${userDoc(name, u.json.login, email, displayName)}` });
+    files.push({ path: 'platform/org.yaml', content: `${org.trimEnd()}\n${userDoc(name, u.json.login, Number(u.json.id), email, displayName)}` });
     done.push(`user ${name} created in the catalog`);
   }
   const added = roles.filter(r => !groupMembers(spaceYaml, `${space}-${r}`).includes(name));
