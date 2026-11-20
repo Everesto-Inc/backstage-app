@@ -1,4 +1,4 @@
-import { argoRbacCsv, codeowners, expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
+import { apiPermission, argoRbacCsv, codeowners, expandEntityAdmins, permissionFor, rulesetBody } from './everestoAccess';
 
 describe('permissionFor', () => {
   it('developers push code, maintainers/owners maintain — nobody is admin', () => {
@@ -79,5 +79,13 @@ describe('codeowners', () => {
     expect(lines[0]).toMatch(/^\* +@Everesto-Inc\/orchid-maintainers/);
     expect(lines.find(l => l.startsWith('/apps/prod/'))).toMatch(/@Everesto-Inc\/orchid-managers$/);
     expect(lines.find(l => l.startsWith('/apps/prod/'))).not.toContain('maintainers');
+  });
+});
+
+describe('apiPermission', () => {
+  it('maps GitHub role names to API permission names (no endless re-apply)', () => {
+    expect(apiPermission('write')).toBe('push');
+    expect(apiPermission('read')).toBe('pull');
+    expect(apiPermission('maintain')).toBe('maintain');
   });
 });

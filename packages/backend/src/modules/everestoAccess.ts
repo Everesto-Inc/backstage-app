@@ -109,6 +109,9 @@ export const rulesetBody = (appId: number) => ({
   ],
 });
 
+/** Pure: GitHub's role names (team repo list) → the permission names the API takes. */
+export const apiPermission = (roleName: string) => ({ write: 'push', read: 'pull' } as Record<string, string>)[roleName] ?? roleName;
+
 /** Pure: CODEOWNERS of a space repo. Last matching line wins. Teams must have write access (they do: maintain / push). */
 export function codeowners(space: string, kind: 'ci' | 'gitops') {
   const t = (r: string) => `@${OWNER}/${space}-${r}`;
@@ -152,13 +155,14 @@ export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: 
       }
       const teamId = t.json?.id;
 
-      // 2. repo permissions
+      // 2. repo permissions — current ones read once per team (GitHub names push "write", pull "read")
+      const teamRepos = teamId ? ((await gh(token, 'GET', `/orgs/${OWNER}/teams/${team}/repos?per_page=100`)).json ?? []) as any[] : [];
+      const repoPerms = new Map(teamRepos.map(r => [String(r.name), apiPermission(String(r.role_name ?? ''))]));
       for (const [kind, repos] of [['ci', space.ciRepos], ['gitops', space.gitopsRepos]] as const) {
         const perm = permissionFor(role, kind);
         if (!perm) continue;
         for (const repo of repos) {
-          const cur = await gh(token, 'GET', `/orgs/${OWNER}/teams/${team}/repos/${OWNER}/${repo}`, undefined);
-          const has = cur.ok ? cur.json?.role_name : undefined;
+          const has = repoPerms.get(repo);
           if (has !== perm) {
             await act(`team ${team}: ${perm} on ${repo}${has ? ` (was ${has})` : ''}`,
               () => gh(token, 'PUT', `/orgs/${OWNER}/teams/${team}/repos/${OWNER}/${repo}`, { permission: perm }));
