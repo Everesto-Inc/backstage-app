@@ -70,7 +70,7 @@ describe('explainStatus', () => {
   });
 
   it('URL down while running → check the port', () => {
-    const s = by(explainStatus({ ...base, url: { host: 'python-backend.dev.everesto.live', status: 502 } }));
+    const s = by(explainStatus({ ...base, url: { host: 'python-backend-dev.everesto.live', status: 502 } }));
     expect(s.url.state).toBe('fail');
     expect(s.url.fix?.text).toContain('port');
   });

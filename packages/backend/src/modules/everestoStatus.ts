@@ -8,7 +8,7 @@
  *   5 Synced                 ArgoCD sync is MANUAL by design → "click Sync"
  *   6 App secrets            ExternalSecret <repo> in <env>-<key> → Kubernetes Secret
  *   7 Running                pods ready (crash / OOM / image / capacity explained)
- *   8 Reachable (dev URL)    https://<repo>.dev.everesto.live answers
+ *   8 Reachable (dev URL)    https://<repo>-dev.everesto.live answers
  *
  * collect() reads (read-only, never secret values); explainStatus() is pure and unit-tested.
  */

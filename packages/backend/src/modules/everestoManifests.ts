@@ -15,7 +15,7 @@ export type DeploymentInput = {
   memoryMi: number;
   replicas: number;
   healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
-  publicUrl?: boolean; // dev: ingress <repo>.dev.everesto.live (via alb wildcard → in-cluster Traefik)
+  publicUrl?: boolean; // dev: ingress <repo>-dev.everesto.live (via alb wildcard → in-cluster Traefik)
   nsKey?: string; // short namespace key → dev-<nsKey> / prod-<nsKey> (default: first word of the app name)
 };
 
@@ -152,9 +152,11 @@ spec:
   ];
 };
 
-/** dev URL: https://<repo>.dev.everesto.live (app names are unique in the org → one wildcard cert covers all). */
-export const devHost = (repo: string) => `${repo}.dev.everesto.live`;
-export const ingress = (repo: string) => `# https://${devHost(repo)} — alb (TLS *.dev.everesto.live) → in-cluster Traefik → this Ingress → Service ${repo}
+/** dev URL: https://<repo>-dev.everesto.live — ONE level under everesto.live, so Cloudflare's free
+ *  edge certificate (*.everesto.live) covers it and it can be proxied (WAF, alb IP hidden).
+ *  <repo>.dev.everesto.live (two levels) would need a paid Cloudflare certificate. */
+export const devHost = (repo: string) => `${repo}-dev.everesto.live`;
+export const ingress = (repo: string) => `# https://${devHost(repo)} — Cloudflare → alb (TLS *.everesto.live) → in-cluster Traefik → this Ingress → Service ${repo}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

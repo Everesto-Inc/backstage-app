@@ -140,7 +140,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               </Grid>
               <Grid item xs={12}>
                 <FormControlLabel control={<Checkbox color="primary" checked={publicUrl} onChange={e => setPublicUrl(e.target.checked)} />}
-                  label={<span><b>Public URL (dev)</b> <Typography component="span" variant="caption" color="textSecondary">https://{repo || '<app>'}.dev.everesto.live — ingress in apps/dev (prod URL: later)</Typography></span>} />
+                  label={<span><b>Public URL (dev)</b> <Typography component="span" variant="caption" color="textSecondary">https://{repo || '<app>'}-dev.everesto.live — ingress in apps/dev (prod URL: later)</Typography></span>} />
               </Grid>
               <Grid item xs={12}><TextField fullWidth size="small" variant="outlined" label="Health check path" value={health} onChange={e => setHealth(e.target.value)}
                 helperText="HTTP GET → readiness + liveness probes (FastAPI skeleton: /health). Empty = only check that the port is open." /></Grid>

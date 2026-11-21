@@ -40,9 +40,9 @@ describe('applySecretsCmd', () => {
 });
 
 describe('devHost', () => {
-  it('is one level under dev.everesto.live (covered by the wildcard certificate)', () => {
-    expect(devHost('python-backend')).toBe('python-backend.dev.everesto.live');
-    expect(devHost('python-backend').split('.').length).toBe(4);
+  it('is one level under everesto.live (covered by the free Cloudflare *.everesto.live certificate)', () => {
+    expect(devHost('python-backend')).toBe('python-backend-dev.everesto.live');
+    expect(devHost('python-backend').split('.').length).toBe(3);
   });
 });
 
