@@ -1,5 +1,5 @@
 import { NS_KEY, applySecretsCmd, devHost, ns, setupCommands } from './everestoDeploy';
-import { TENANT_KINDS, appProject, guardrails, quotaOf } from './everestoManifests';
+import { TENANT_KINDS, appProject, application, guardrails, quotaOf } from './everestoManifests';
 
 describe('setupCommands', () => {
   const steps = setupCommands('python-backend', 'orchid', false);
@@ -85,5 +85,14 @@ describe('tenant guardrails', () => {
       expect(p).not.toMatch(new RegExp(`kind: ${k} }`));
     }
     expect(TENANT_KINDS.length).toBeGreaterThan(5);
+  });
+});
+
+describe('ArgoCD Application labels', () => {
+  it('marks every generated app as managed by Backstage, with space and env', () => {
+    const yaml = application('maas-backend', 'orchid', 'dev', 'maas-app');
+    expect(yaml).toContain('app.kubernetes.io/managed-by: backstage');
+    expect(yaml).toContain('everesto.live/project: orchid');
+    expect(yaml).toContain('everesto.live/env: dev');
   });
 });

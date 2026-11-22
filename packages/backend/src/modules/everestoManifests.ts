@@ -223,7 +223,9 @@ kind: Application
 metadata:
   name: ${env}-${repo}
   namespace: argocd
-  labels: { everesto.live/project: ${project}, everesto.live/env: ${env} }
+  # ArgoCD UI → Filters → Labels: app.kubernetes.io/managed-by=backstage (everything Backstage created),
+  # everesto.live/project=<space>, everesto.live/env=dev|prod
+  labels: { app.kubernetes.io/managed-by: backstage, everesto.live/project: ${project}, everesto.live/env: ${env} }
   finalizers: [resources-finalizer.argocd.argoproj.io]   # deleting the app removes its pods too
 spec:
   project: ${project}
