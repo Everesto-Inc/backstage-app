@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StatusChainOf } from './StatusChain';
 import { useEveresto } from './api';
+import { BusyBar, BusyButton, SLOW_HINT } from './Busy';
 import { Entity } from '@backstage/catalog-model';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import {
@@ -95,6 +96,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
     <Dialog open={open} onClose={busy ? undefined : close} maxWidth="md" fullWidth>
       <DialogTitle>{result ? `Deployment created · ${repo}` : `Create deployment · ${project}`}</DialogTitle>
       <DialogContent>
+        <BusyBar busy={busy} hint={`${SLOW_HINT} (Infisical project, gitops repo, ArgoCD app)`} />
         {result ? (
           <>
             <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
@@ -166,7 +168,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
         {result ? <Button color="primary" onClick={close}>Close</Button> : (
           <>
             <Button onClick={close} disabled={busy}>Cancel</Button>
-            <Button color="primary" variant="contained" disableElevation disabled={busy || !valid} onClick={create}>{busy ? 'Creating…' : 'Create deployment'}</Button>
+            <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Creating…" disabled={!valid} onClick={create}>Create deployment</BusyButton>
           </>
         )}
       </DialogActions>

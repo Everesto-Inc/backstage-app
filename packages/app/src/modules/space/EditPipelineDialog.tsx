@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEveresto } from './api';
+import { BusyBar, BusyButton, SLOW_HINT } from './Busy';
 import { Entity, stringifyEntityRef } from '@backstage/catalog-model';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
@@ -43,7 +44,8 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const tools = repoOnly ? [] : TOOLS.filter(t => t.stage === 'ci' && (t.id in SWITCHABLE || ALWAYS_ON.includes(t.id)));
   const initial = Object.fromEntries(tools.map(t => [t.id, toolState(entity, t).kind !== 'missing']));
   const [checked, setChecked] = useState<Record<string, boolean>>(preset ? { ...initial, [preset.id]: preset.on } : initial);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<'save' | 'delete' | undefined>();
+  const busy = !!busyAction;
   const [confirmDelete, setConfirmDelete] = useState('');
   const [result, setResult] = useState<{ done: string[]; warn?: string[] } | undefined>();
 
@@ -56,7 +58,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const call = (path: string, body: unknown) => api('POST', `/apps/${encodeURIComponent(repo)}/${path}`, body);
 
   const save = async () => {
-    setBusy(true);
+    setBusyAction('save');
     try {
       const out = await call('tools', Object.fromEntries(changes.map(c => [c.key, c.on])));
       await catalogApi.refreshEntity(stringifyEntityRef(entity)).catch(() => {});
@@ -64,18 +66,18 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
       alertApi.post({ message: `Pipeline of ${repo} saved — CI runs with the new settings`, severity: 'success', display: 'transient' });
     } catch (e: any) {
       alertApi.post({ message: `Save failed: ${e.message}`, severity: 'error' });
-    } finally { setBusy(false); }
+    } finally { setBusyAction(undefined); }
   };
 
   const del = async () => {
-    setBusy(true);
+    setBusyAction('delete');
     try {
       const out = await call('delete', { confirm: repo });
       setResult(out);
       alertApi.post({ message: `Application ${repo} deleted`, severity: 'success', display: 'transient' });
     } catch (e: any) {
       alertApi.post({ message: `Delete failed: ${e.message}`, severity: 'error' });
-    } finally { setBusy(false); }
+    } finally { setBusyAction(undefined); }
   };
 
   if (result) {
@@ -98,6 +100,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   return (
     <Dialog open onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{repoOnly ? 'Edit repository' : 'Edit pipeline'} · {repo}</DialogTitle>
+      <Box px={3}><BusyBar busy={busy} hint={busyAction === 'delete' ? `${SLOW_HINT} (repo, SonarQube, deployment, catalog)` : 'Saving the pipeline settings…'} /></Box>
       <DialogContent>
         {tools.map(t => {
           const locked = ALWAYS_ON.includes(t.id) || !canEdit;
@@ -146,19 +149,19 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
             <Box display="flex" style={{ gap: 12 }} alignItems="center">
               <TextField size="small" variant="outlined" placeholder={repo} value={confirmDelete} disabled={busy}
                 onChange={e => setConfirmDelete(e.target.value)} style={{ flex: 1 }} />
-              <Button variant="contained" disabled={busy || confirmDelete !== repo} startIcon={<DeleteForever />}
+              <BusyButton variant="contained" busy={busyAction === 'delete'} busyLabel="Deleting…" disabled={busy || confirmDelete !== repo} startIcon={<DeleteForever />}
                 style={confirmDelete === repo ? { background: STATUS.critical, color: '#fff' } : undefined} onClick={del}>
                 Delete
-              </Button>
+              </BusyButton>
             </Box>
           </Box>
         )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button color="primary" variant="contained" disabled={busy || !canEdit || changes.length === 0} onClick={save}>
-          {busy ? 'Working…' : 'Save'}
-        </Button>
+        <BusyButton color="primary" variant="contained" busy={busyAction === 'save'} busyLabel="Saving…" disabled={busy || !canEdit || changes.length === 0} onClick={save}>
+          Save
+        </BusyButton>
       </DialogActions>
     </Dialog>
   );

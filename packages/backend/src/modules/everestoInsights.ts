@@ -419,23 +419,38 @@ export const everestoInsightsPlugin = createBackendPlugin({
         });
 
         // ---- access sync: Backstage groups → GitHub teams, invitations, branch protection ----
-        const runAccessSync = async (dryRun: boolean) => {
+        // only = one space (after a member change); otherwise all spaces
+        type SyncRun = { at: string; trigger: 'automatic' | 'manual'; dryRun: boolean; actions: string[]; warnings: string[] };
+        let lastFullRun: SyncRun | undefined; // last APPLIED full run (automatic every 30 min, or Apply) — shown on the Access check card
+        const runAccessSync = async (dryRun: boolean, only?: string) => {
           const credentials = await auth.getOwnServiceCredentials();
           const getEntities = async (filter: Record<string, string>) => (await catalog.getEntities({ filter }, { credentials })).items;
           const platform = (await getEntities({ kind: 'Group', 'metadata.name': 'platform-team' }))[0];
           const owners = membersOf(platform);
           const spaces = await readSpaces(getEntities, await readRegistry(await githubToken(config, OWNER), true));
-          const github = await syncGithubAccess(config, spaces, dryRun, owners);
+          const github = await syncGithubAccess(config, spaces, dryRun, owners, only);
           // SonarQube follows the same roles (its own failure never blocks the GitHub part)
-          const sonar = await syncSonarAccess(config, spaces, dryRun, owners).catch(e => ({ actions: [], warnings: [`SonarQube sync failed: ${e}`] }));
+          const sonar = await syncSonarAccess(config, only ? spaces.filter(s => s.name === only) : spaces, dryRun, owners)
+            .catch(e => ({ actions: [], warnings: [`SonarQube sync failed: ${e}`] }));
           return { ...github, actions: [...github.actions, ...sonar.actions], warnings: [...github.warnings, ...sonar.warnings] };
         };
+        const remember = (trigger: SyncRun['trigger'], out: { dryRun: boolean; actions: string[]; warnings: string[] }) => {
+          if (!out.dryRun) lastFullRun = { at: new Date().toISOString(), trigger, ...out };
+        };
+        router.get('/access/status', async (req, res) => {
+          try {
+            const { refs } = await caller(req);
+            if (!refs.includes('group:default/platform-team')) { res.status(403).json({ error: 'platform-team only' }); return; }
+            res.json({ lastRun: lastFullRun ?? null, everyMinutes: config.getOptionalBoolean('everesto.accessSync.enabled') ? 30 : null });
+          } catch (e) { fail(res, e); }
+        });
         router.post('/access/sync', async (req, res) => {
           try {
             const { refs, who } = await caller(req);
             if (!refs.includes('group:default/platform-team')) { res.status(403).json({ error: 'platform-team only' }); return; }
             const dryRun = req.query.dryRun !== '0';
             const out = await runAccessSync(dryRun);
+            remember('manual', out);
             logger.info(`access sync (${dryRun ? 'dry run' : 'APPLIED'}) by ${who}: ${out.actions.length} actions, ${out.warnings.length} warnings`);
             if (!dryRun && out.warnings.length) logger.warn(`access sync warnings: ${out.warnings.join(' | ')}`);
             res.json(out);
@@ -449,12 +464,22 @@ export const everestoInsightsPlugin = createBackendPlugin({
             initialDelay: { minutes: 3 },
             fn: async () => {
               const out = await runAccessSync(false);
+              remember('automatic', out);
               if (out.actions.length || out.warnings.length) logger.info(`access sync: ${[...out.actions, ...out.warnings.map(w => `WARN ${w}`)].join(' | ')}`);
             },
           });
         }
 
         // ---- members of a DevOps Space (real Invite / Remove) ----
+        /** Poll the catalog (max ~30 s) until the role groups show the change — true when visible. */
+        const waitForCatalog = async (credentials: any, space: string, roles: string[], user: string, present: boolean) => {
+          for (let i = 0; i < 15; i++) {
+            const groups = await Promise.all(roles.map(r => catalog.getEntityByRef(`group:default/${space}-${r}`, { credentials })));
+            if (groups.every(g => membersOf(g as any).includes(user) === present)) return true;
+            await new Promise(r => setTimeout(r, 2000));
+          }
+          return false;
+        };
         const memberChange = async (req: express.Request, res: express.Response, remove: boolean) => {
           const { space } = req.params;
           // add: one or several roles at once (body.roles) · remove: one role (body.role)
@@ -485,6 +510,17 @@ export const everestoInsightsPlugin = createBackendPlugin({
             // re-read the catalog files now instead of waiting for the next processing loop
             for (const ref of [...roles.map(r => `group:default/${space}-${r}`), 'group:default/platform-team']) {
               await catalog.refreshEntity(ref, { credentials }).catch(() => undefined);
+            }
+            // Apply access for THIS space right away (GitHub teams, repo permissions, ArgoCD, SonarQube) — no separate
+            // "Apply" needed. Only once the catalog shows the change: a sync on stale data would undo it.
+            const user = (out as any).user ?? login.toLowerCase();
+            const visible = await waitForCatalog(credentials, space, roles, user, !remove);
+            if (!visible) {
+              out.warn.push('access (GitHub teams, ArgoCD, SonarQube) is applied by the automatic sync within 30 minutes — the catalog was not updated yet');
+            } else {
+              const acc = await runAccessSync(false, space).catch(e => ({ actions: [] as string[], warnings: [`access sync failed: ${e}`] }));
+              out.done.push(...(acc.actions.length ? acc.actions.map(a => `access: ${a}`) : ['access: GitHub, ArgoCD and SonarQube already match']));
+              out.warn.push(...acc.warnings);
             }
             logger.info(`members of ${space} (${roles.join(',')}) ${remove ? '-' : '+'} ${login} by ${who}: ${out.done.join(', ')}`);
             notify([`user:default/${login.toLowerCase()}`], remove

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Typography } from '@material-ui/core';
+import { BusyBar, BusyButton } from './Busy';
 import useAsync from 'react-use/esm/useAsync';
 import { useEveresto } from './api';
 
@@ -44,6 +45,7 @@ export const CreateSpaceDialog = ({ entity, entityTitle, open, onClose, onCreate
     <Dialog open={open} onClose={busy ? undefined : close} maxWidth="sm" fullWidth>
       <DialogTitle>{done ? 'Space created' : `Create space in ${entityTitle}`}</DialogTitle>
       <DialogContent>
+        <BusyBar busy={busy} hint="Creating the space, its roles and GitHub teams…" />
         {done && (
           <>
             <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>{done.map(d => <li key={d}>{d}</li>)}</Box>
@@ -79,9 +81,9 @@ export const CreateSpaceDialog = ({ entity, entityTitle, open, onClose, onCreate
         {done ? <Button color="primary" onClick={close}>Close</Button> : (
           <>
             <Button onClick={close} disabled={busy}>Cancel</Button>
-            <Button color="primary" variant="contained" disableElevation disabled={busy || !sugg.value?.canCreate || !name || !!formatProblem} onClick={create}>
-              {busy ? 'Creating…' : 'Create space'}
-            </Button>
+            <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Creating…" disabled={!sugg.value?.canCreate || !name || !!formatProblem} onClick={create}>
+              Create space
+            </BusyButton>
           </>
         )}
       </DialogActions>

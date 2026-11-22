@@ -21,6 +21,7 @@ import {
 import PersonAddIcon from '@material-ui/icons/PersonAdd';
 import { Member, ROLES, ROLE_LABEL, Role, useMembers, useSpaceRole } from './data';
 import { AccessSyncCard } from './AccessSyncCard';
+import { BusyBar, BusyButton } from './Busy';
 
 const ROLE_RIGHTS: Record<Role, string> = {
   managers: 'everything a maintainer can + promote to prod, prod secrets, delete applications, add/remove maintainers',
@@ -56,6 +57,29 @@ const useStyles = makeStyles(theme => ({
 }));
 
 /** Space (System) → "Members": one row per person, all their roles. Owner / managers / maintainers manage (givableRoles). */
+/** Result of an invite / remove: what changed in Backstage, then the access applied right away (lines "access: …"). */
+const ChangeResult = ({ result }: { result: { done: string[]; warn: string[] } }) => {
+  const member = result.done.filter(d => !d.startsWith('access: '));
+  const access = result.done.filter(d => d.startsWith('access: ')).map(d => d.slice(8).replace(/^would /, ''));
+  return (
+    <>
+      <Typography variant="subtitle2">✓ Done</Typography>
+      <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>{member.map(d => <li key={d}>{d}</li>)}</Box>
+      {access.length > 0 && (
+        <>
+          <Typography variant="subtitle2" style={{ marginTop: 8 }}>Access applied (GitHub, ArgoCD, SonarQube)</Typography>
+          <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>{access.map(d => <li key={d}>{d}</li>)}</Box>
+        </>
+      )}
+      {result.warn.length > 0 && (
+        <Box component="ul" pl={3} m={0} mt={1} style={{ lineHeight: 1.8 }}>
+          {result.warn.map(w => <li key={w} style={{ color: '#fab219' }}>⚠ {w}</li>)}
+        </Box>
+      )}
+    </>
+  );
+};
+
 export const ProjectMembers = () => {
   const classes = useStyles();
   const { entity } = useEntity();
@@ -154,11 +178,9 @@ export const ProjectMembers = () => {
       <Dialog open={inviting} onClose={busy ? undefined : closeInvite} maxWidth="sm" fullWidth>
         <DialogTitle>Add a member to {entity.metadata.title ?? project}</DialogTitle>
         <DialogContent>
+          <BusyBar busy={busy} hint="Adding the member and applying their access (GitHub teams, ArgoCD, SonarQube) — up to a minute." />
           {result ? (
-            <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
-              {result.done.map(d => <li key={d}>{d}</li>)}
-              {result.warn.map(w => <li key={w} style={{ color: '#fab219' }}>⚠ {w}</li>)}
-            </Box>
+            <ChangeResult result={result} />
           ) : (
             <>
               <Typography variant="body2" color="textSecondary" paragraph>
@@ -188,10 +210,10 @@ export const ProjectMembers = () => {
         <DialogActions>
           <Button onClick={closeInvite} disabled={busy}>{result ? 'Close' : 'Cancel'}</Button>
           {!result && (
-            <Button color="primary" variant="contained" disableElevation disabled={busy || !username || !roles.some(r => givable.includes(r))}
+            <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Adding…" disabled={!username || !roles.some(r => givable.includes(r))}
               onClick={() => call('members', { username, roles: roles.filter(r => givable.includes(r)), email: email || undefined, displayName: displayName || undefined })}>
-              {busy ? 'Adding…' : 'Add member'}
-            </Button>
+              Add member
+            </BusyButton>
           )}
         </DialogActions>
       </Dialog>
@@ -199,14 +221,12 @@ export const ProjectMembers = () => {
       <Dialog open={Boolean(removing)} onClose={busy ? undefined : closeRemove} maxWidth="xs" fullWidth>
         <DialogTitle>Remove {removing?.user.metadata.name} ({removing ? ROLE_LABEL[removing.role] : ''})?</DialogTitle>
         <DialogContent>
+          <BusyBar busy={busy} hint="Removing the role and its access (GitHub team, ArgoCD, SonarQube) — up to a minute." />
           {result ? (
-            <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.8 }}>
-              {result.done.map(d => <li key={d}>{d}</li>)}
-              {result.warn.map(w => <li key={w} style={{ color: '#fab219' }}>⚠ {w}</li>)}
-            </Box>
+            <ChangeResult result={result} />
           ) : (
             <Typography variant="body2">
-              Removes the {removing ? ROLE_LABEL[removing.role] : ''} role in {project} (catalog + GitHub team). Their GitHub account
+              Removes the {removing ? ROLE_LABEL[removing.role] : ''} role in {project} and its access right away (GitHub team, ArgoCD, SonarQube). Their GitHub account
               and org membership stay — they may belong to other spaces.
             </Typography>
           )}
@@ -214,10 +234,10 @@ export const ProjectMembers = () => {
         <DialogActions>
           <Button onClick={closeRemove} disabled={busy}>{result ? 'Close' : 'Cancel'}</Button>
           {!result && removing && (
-            <Button variant="contained" disableElevation disabled={busy} style={{ background: '#d03b3b', color: '#fff' }}
+            <BusyButton variant="contained" disableElevation busy={busy} busyLabel="Removing…" style={{ background: '#d03b3b', color: '#fff' }}
               onClick={() => call('members/remove', { username: removing.user.metadata.name, role: removing.role })}>
-              {busy ? 'Removing…' : 'Remove'}
-            </Button>
+              Remove
+            </BusyButton>
           )}
         </DialogActions>
       </Dialog>
@@ -225,3 +245,4 @@ export const ProjectMembers = () => {
     </Box>
   );
 };
+

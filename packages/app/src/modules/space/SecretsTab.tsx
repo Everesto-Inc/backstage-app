@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEveresto } from './api';
+import { BusyBar, BusyButton } from './Busy';
 import { Entity } from '@backstage/catalog-model';
 import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import {
@@ -33,6 +34,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
   const [newName, setNewName] = useState('');
   const [del, setDel] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [renewing, setRenewing] = useState(false);
   const [applyCmd, setApplyCmd] = useState<string | undefined>();
   const [esoCmd, setEsoCmd] = useState<string | undefined>();
 
@@ -58,7 +60,10 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
     setApplyCmd(r.applyCmd);
     setDel(undefined);
   });
-  const newLogin = () => run(async () => setEsoCmd((await call('POST', '/deployment/eso-login')).cmd));
+  const newLogin = async () => {
+    setRenewing(true);
+    try { setEsoCmd((await call('POST', '/deployment/eso-login')).cmd); } catch (e: any) { alertApi.post({ message: e.message, severity: 'error' }); } finally { setRenewing(false); }
+  };
 
   const { value: steps = [] } = useAsync(async (): Promise<SetupStep[]> => (await call('GET', '/deployment/setup')).commands, [repo]);
   const d = list.value;
@@ -82,10 +87,10 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
 
       <Box p={2} borderRadius={12} style={{ border: '1px solid rgba(128,128,128,0.25)' }}>
         <Box display="flex" alignItems="center">
-          <Typography variant="subtitle2">Secrets — Infisical {repo}-gitops / {env} → Kubernetes Secret {repo}</Typography>
+          <Typography variant="subtitle2">Secrets — Infisical / {env} → Kubernetes Secret {repo}</Typography>
           {canEdit && <Box ml="auto"><Button size="small" color="primary" variant="outlined" onClick={() => { setEdit({ name: '', isNew: true }); setNewName(''); setValue(''); }}>Add secret</Button></Box>}
         </Box>
-        {list.loading && <Typography variant="body2" color="textSecondary">Loading…</Typography>}
+        {list.loading && <Box mt={1}><BusyBar busy hint={`Loading ${env} secrets from Infisical…`} /></Box>}
         {list.error && <Typography variant="body2" style={{ color: STATUS.critical }}>{list.error.message}</Typography>}
         {d && d.secrets.length === 0 && <Typography variant="body2" color="textSecondary">No secrets in {env} yet.</Typography>}
         {d?.secrets.map(s => (
@@ -127,7 +132,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
             The cluster reads this app's secrets from Infisical with its own read-only login, managed automatically.
             Renew it if it may have leaked, or when the CD tab's Status asks for it — nothing to copy, nothing to run.
           </Typography>
-          <Box mt={1}><Button size="small" variant="outlined" disabled={busy} onClick={newLogin}>Renew cluster access</Button></Box>
+          <Box mt={1}><BusyButton size="small" variant="outlined" busy={renewing} busyLabel="Renewing…" onClick={newLogin}>Renew cluster access</BusyButton></Box>
           {esoCmd && (
             <>
               <CmdBox title="✓ Renewed — the cluster picks it up within 5 minutes (nothing to run). Follow it in the CD tab → Status." cmd={esoCmd} />
@@ -144,12 +149,12 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
               onChange={e => setNewName(e.target.value.toUpperCase().replaceAll(/[^A-Z0-9_]/g, '_'))} helperText="A-Z 0-9 _ — becomes an environment variable" />
           )}
           <TextField fullWidth size="small" variant="outlined" margin="dense" label="Value" type="password" autoComplete="new-password"
-            value={value} onChange={e => setValue(e.target.value)} helperText={`Written to Infisical ${repo}-gitops / ${env}. Not stored in Backstage.`} />
+            value={value} onChange={e => setValue(e.target.value)} helperText={`Written to the app's Infisical project / ${env}. Not stored in Backstage.`} />
           {env === 'prod' && <Typography variant="body2" style={{ color: STATUS.warning, marginTop: 8 }}>This changes PROD.</Typography>}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEdit(undefined)} disabled={busy}>Cancel</Button>
-          <Button color="primary" variant="contained" disableElevation disabled={busy || !value || (edit?.isNew && !VAR.test(newName))} onClick={save}>Save</Button>
+          <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Saving…" disabled={!value || (edit?.isNew && !VAR.test(newName))} onClick={save}>Save</BusyButton>
         </DialogActions>
       </Dialog>
 
@@ -160,7 +165,7 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDel(undefined)} disabled={busy}>Cancel</Button>
-          <Button variant="contained" disableElevation disabled={busy} style={{ background: STATUS.critical, color: '#fff' }} onClick={remove}>Delete</Button>
+          <BusyButton variant="contained" disableElevation busy={busy} busyLabel="Deleting…" style={{ background: STATUS.critical, color: '#fff' }} onClick={remove}>Delete</BusyButton>
         </DialogActions>
       </Dialog>
     </Box>

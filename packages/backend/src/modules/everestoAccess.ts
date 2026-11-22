@@ -121,7 +121,11 @@ export function codeowners(space: string, kind: 'ci' | 'gitops') {
     : `${head}*                    ${t('maintainers')} ${t('managers')}\n/apps/prod/          ${t('managers')}\n/argocd/argocd-prod.yaml ${t('managers')}\n/.github/            ${t('managers')}\n`;
 }
 
-export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: boolean, platformTeam?: string[]): Promise<AccessReport> {
+/**
+ * only = sync just this space (teams, repo permissions, rulesets) — used right after a member change.
+ * The ArgoCD role file is ALWAYS generated from all `spaces` (a subset would drop the other spaces' roles).
+ */
+export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: boolean, platformTeam?: string[], only?: string): Promise<AccessReport> {
   const token = await githubToken(config, OWNER);
   const appId = Number(config.getConfigArray('integrations.github')[0]?.getConfigArray('apps')[0]?.getString('appId'));
   const report: AccessReport = { dryRun, actions: [], warnings: [] };
@@ -142,7 +146,7 @@ export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: 
   const pending = new Set(((await gh(token, 'GET', `/orgs/${OWNER}/invitations?per_page=100`)).json ?? [])
     .map((i: any) => String(i.login ?? '').toLowerCase()));
 
-  for (const space of spaces) {
+  for (const space of spaces.filter(s => !only || s.name === only)) {
     for (const role of ROLES) {
       const team = `${space.name}-${role}`;
       // 1. team exists
@@ -226,8 +230,8 @@ export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: 
       }
     }
   }
-  // owners: GitHub team platform-team (ArgoCD role:admin via Dex groups)
-  if (platformTeam) {
+  // owners: GitHub team platform-team (ArgoCD role:admin via Dex groups) — full runs only
+  if (platformTeam && !only) {
     let t = await gh(token, 'GET', `/orgs/${OWNER}/teams/platform-team`);
     if (t.status === 404) {
       await act('create team platform-team (owners)', () => gh(token, 'POST', `/orgs/${OWNER}/teams`, { name: 'platform-team', privacy: 'secret', description: 'Platform owners (managed by Backstage)' }));

@@ -3,6 +3,7 @@ import { Entity } from '@backstage/catalog-model';
 import { alertApiRef, useApi, useRouteRef } from '@backstage/core-plugin-api';
 import { entityRouteRef } from '@backstage/plugin-catalog-react';
 import { Box, Button, CircularProgress, Link, Typography } from '@material-ui/core';
+import { BusyButton } from './Busy';
 import useAsyncRetry from 'react-use/esm/useAsyncRetry';
 import { STATUS } from '../tools/charts';
 import { useEveresto } from './api';
@@ -91,7 +92,7 @@ export const StatusChainOf = ({ repo, project }: { repo: string; project: string
     let button: JSX.Element | null = null;
     if (a === 'renew-access') {
       button = roles.maintainer
-        ? <Button size="small" variant="contained" color="primary" disabled={busy} onClick={renew}>Renew cluster access</Button>
+        ? <BusyButton size="small" variant="contained" color="primary" busy={busy} busyLabel="Renewing…" onClick={renew}>Renew cluster access</BusyButton>
         : <Typography variant="caption">Ask a maintainer of {project}.</Typography>;
     } else if (a === 'argocd-sync' && s.fix.url) {
       button = <Button size="small" variant="contained" color="primary" href={s.fix.url} target="_blank" rel="noopener">Open in ArgoCD</Button>;
@@ -116,7 +117,7 @@ export const StatusChainOf = ({ repo, project }: { repo: string; project: string
           <Box display="flex" alignItems="center" mb={1}>
             <Typography variant="h6">{e.env} · {e.namespace}</Typography>
             <Box ml={2}><StatusLine env={e} /></Box>
-            <Box ml="auto"><Button size="small" onClick={status.retry}>Check now</Button></Box>
+            <Box ml="auto"><BusyButton size="small" busy={status.loading} busyLabel="Checking…" onClick={status.retry}>Check now</BusyButton></Box>
           </Box>
           {e.steps.map(s => (
             <Box key={s.id} display="flex" py={0.75} style={{ gap: 12, borderTop: '1px solid rgba(128,128,128,0.15)', opacity: s.state === 'off' ? 0.55 : 1 }}>
