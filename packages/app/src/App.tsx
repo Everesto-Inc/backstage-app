@@ -6,7 +6,8 @@ import { signInModule } from './modules/signIn';
 import { toolsModule } from './modules/tools';
 import { themeModule } from './modules/theme';
 import { spaceModule } from './modules/space';
+import { techdocsStyleModule } from './modules/techdocsStyle';
 
 export default createApp({
-  features: [catalogPlugin, navModule, homeModule, signInModule, toolsModule, spaceModule, themeModule],
+  features: [catalogPlugin, navModule, homeModule, signInModule, toolsModule, spaceModule, themeModule, techdocsStyleModule],
 });

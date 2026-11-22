@@ -44,6 +44,7 @@
     "@backstage/plugin-signals": "^0.0.36",
     "@backstage/plugin-techdocs": "^1.19.0",
     "@backstage/plugin-techdocs-module-addons-contrib": "^1.1.41",
+    "@backstage/plugin-techdocs-react": "^1.4.0",
     "@backstage/plugin-user-settings": "^0.9.8",
     "@backstage/theme": "^0.7.3",
     "@backstage/ui": "^0.19.0",

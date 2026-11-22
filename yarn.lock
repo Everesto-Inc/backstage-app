@@ -13712,6 +13712,7 @@ __metadata:
     "@backstage/plugin-signals": "npm:^0.0.36"
     "@backstage/plugin-techdocs": "npm:^1.19.0"
     "@backstage/plugin-techdocs-module-addons-contrib": "npm:^1.1.41"
+    "@backstage/plugin-techdocs-react": "npm:^1.4.0"
     "@backstage/plugin-user-settings": "npm:^0.9.8"
     "@backstage/theme": "npm:^0.7.3"
     "@backstage/ui": "npm:^0.19.0"
