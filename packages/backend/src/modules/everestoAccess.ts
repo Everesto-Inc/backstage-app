@@ -5,6 +5,8 @@
  *   GitHub teams  <space>-developers  → push     on the space's CI repos (Components)
  *                 <space>-maintainers → maintain on CI repos, push on its <app>-gitops repos
  *   (owner = platform-team = GitHub org owners — no per-space owner team)
+ *   GitHub team platform-team = Backstage group platform-team (org.yaml): added AND removed — it grants ArgoCD admin
+ *   (Dex groups) and the Redis UI (oauth2-proxy). An EMPTY platform-team is treated as a read error: nobody is removed.
  *   Nobody gets admin → nobody can delete a repo or change branch protection.
  *   Users not yet in the org are INVITED (with their team). Users removed from a Backstage group are removed
  *   from that GitHub TEAM (not from the org — they may belong to other spaces).
@@ -112,6 +114,13 @@ export const rulesetBody = (appId: number) => ({
     { actor_id: 1, actor_type: 'OrganizationAdmin', bypass_mode: 'always' }, // org owners: break-glass
   ],
 });
+
+/**
+ * Pure: owners to remove = current members no longer wanted. Safety: an empty wanted list means the catalog
+ * read went wrong (there is always at least one owner) — never remove everyone and lock the platform out.
+ */
+export const ownerRemovals = (current: Iterable<string>, wanted: string[]) =>
+  wanted.length ? [...current].filter(u => !wanted.includes(u)) : [];
 
 /** Pure: GitHub's role names (team repo list) → the permission names the API takes. */
 export const apiPermission = (roleName: string) => ({ write: 'push', read: 'pull' } as Record<string, string>)[roleName] ?? roleName;
@@ -244,6 +253,11 @@ export async function syncGithubAccess(config: Config, spaces: Space[], dryRun: 
     const cur = new Set<string>(t.ok ? ((await gh(token, 'GET', `/orgs/${OWNER}/teams/platform-team/members?per_page=100`)).json ?? []).map((m: any) => String(m.login).toLowerCase()) : []);
     for (const u of platformTeam) {
       if (!cur.has(u) && orgMembers.has(u)) await act(`add ${u} to team platform-team`, () => gh(token, 'PUT', `/orgs/${OWNER}/teams/platform-team/memberships/${u}`, { role: 'member' }));
+    }
+    if (!platformTeam.length) report.warnings.push('platform-team is empty in the catalog — nobody removed from GitHub team platform-team (check org.yaml)');
+    for (const u of ownerRemovals(cur, platformTeam)) {
+      await act(`remove ${u} from team platform-team (no longer in platform-team in Backstage)`,
+        () => gh(token, 'DELETE', `/orgs/${OWNER}/teams/platform-team/memberships/${u}`));
     }
   }
 

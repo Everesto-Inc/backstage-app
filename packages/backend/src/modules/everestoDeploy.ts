@@ -2,7 +2,9 @@
  * everesto deploy — CD for an existing CI application (maintainers / owners; delete = owners).
  *
  * Flow (decided 2026-11-14):
- *   createDeployment → 1. Infisical FIRST: project <space>-<repo>-gitops (one per application) with the app's secrets
+ *   createDeployment → 0. Redis switch on: ACL user <space>-<repo> in the shared Redis (everestoRedis) → its
+ *                         REDIS_URL / REDIS_KEY_PREFIX go into Infisical with the other secrets
+ *                      1. Infisical FIRST: project <space>-<repo>-gitops (one per application) with the app's secrets
  *                         in dev, identity eso-<repo> (viewer). Not connected / fails → nothing is created.
  *                      2. public repo <repo>-gitops: apps/dev (+ argocd/argocd.yaml, argocd/secret-stores.yaml)
  *                      3. catalog Resource <repo>-gitops in the app's catalog-info.yaml
@@ -28,6 +30,7 @@ import { gh, githubToken } from './everestoActions';
 import { ROLE } from './everestoRoles';
 import { argoApp } from './everestoK8s';
 import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
+import { REDIS_SECRET_NAMES, redisConfigured, redisProvision, redisRemove } from './everestoRedis';
 
 // public API of the deployment modules (callers import from here)
 export { NS_KEY, devHost, ns } from './everestoManifests';
@@ -70,6 +73,11 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     throw err(400, 'port 1-65535, memory 64-1024 Mi, replicas 1-3');
   }
   if (d.healthPath && !/^\/[A-Za-z0-9/_.-]{0,100}$/.test(d.healthPath)) throw err(400, 'health path must look like /health');
+  if (d.redis) {
+    const clash = [...d.secrets, ...d.config].find(x => (REDIS_SECRET_NAMES as readonly string[]).includes(x.name));
+    if (clash) throw err(400, `${clash.name} is set by the Redis switch — remove it from secrets/config`);
+    if (!redisConfigured(config)) throw err(409, 'Redis is not connected to Backstage yet (REDIS_ADMIN_URL) — create the deployment without Redis, or ask the platform team');
+  }
   const nsKey = (d.nsKey || repo.split('-')[0]).toLowerCase();
   if (!NS_KEY.test(nsKey)) throw err(400, 'namespace name: a-z 0-9 - (max 42), e.g. python');
   const gitops = `${repo}-gitops`;
@@ -78,9 +86,14 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   const [last] = await builds(config, repo);
   if (!last) throw err(409, `${repo} has no successful build on main yet — no image to deploy`);
 
+  // 0. Redis (switch): the app's ACL user — undone below if Infisical fails, so nothing is left behind
+  const redis = d.redis ? await redisProvision(config, project, repo, 'dev') : undefined;
+
   // 1. Infisical FIRST — if this fails nothing else is created
-  const inf = await infisicalSetup(config, project, repo, 'dev', d.secrets);
+  const inf = await infisicalSetup(config, project, repo, 'dev', [...d.secrets, ...(redis?.secrets ?? [])])
+    .catch(async e => { if (redis) await redisRemove(config, project, repo); throw e; });
   const done = [`Infisical project ${inf.project} / dev: ${d.secrets.length} secret(s)${d.secrets.some(s => !s.value) ? ' (empty ones = CHANGE_ME, set them in Infisical)' : ''}`];
+  if (redis) done.push(`Redis: user ${redis.user}, keys ${redis.prefix}* only → REDIS_URL + REDIS_KEY_PREFIX in Infisical / dev`);
 
   // 2. gitops repo (public: no secret values inside)
   const created = await gh(token, 'POST', `/orgs/${OWNER}/repos`, {
@@ -99,7 +112,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     { path: 'apps/dev/externalsecret.yaml', content: externalSecret(repo, project, 'dev') },
     { path: 'argocd/argocd.yaml', content: `${header('argocd.yaml', gitops)}${appProject(project, [ns(nsKey, 'dev'), ns(nsKey, 'prod')])}---\n${application(repo, project, 'dev', nsKey)}` },
     { path: 'argocd/secret-stores.yaml', content: `${header('secret-stores.yaml', gitops, `# needs secret infisical-${repo}-auth in namespace external-secrets\n`)}${secretStore(repo, project, 'dev', inf.projectSlug, inf.url, nsKey)}` },
-    { path: 'deployment.json', content: `${JSON.stringify({ nsKey, port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
+    { path: 'deployment.json', content: `${JSON.stringify({ nsKey, port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, redis: !!d.redis, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
     { path: 'docs/index.md', content: runbook(repo, project, false, nsKey) },
     { path: 'mkdocs.yml', content: mkdocs(repo) },
     { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${inf.project}\` (dev / prod), via ESO. Never in this repo.\n` },
@@ -109,7 +122,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   // 3. catalog: Resource <repo>-gitops next to the CI component
   await commit(token, repo, `cd: ${gitops} (Backstage, by ${who})`, [{
     path: 'catalog-info.yaml',
-    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/namespace: ${nsKey}\n${d.publicUrl !== false ? `    everesto.live/url-dev: https://${devHost(repo)}\n` : ''}    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
+    content: `${info.trimEnd()}\n---\napiVersion: backstage.io/v1alpha1\nkind: Resource\nmetadata:\n  name: ${gitops}\n  description: CD of ${repo} — ArgoCD dev-${repo} (manual sync), prod via Promote\n  annotations:\n    github.com/project-slug: ${OWNER}/${gitops}\n    argocd/app-name: dev-${repo}\n    everesto.live/namespace: ${nsKey}\n${d.publicUrl !== false ? `    everesto.live/url-dev: https://${devHost(repo)}\n` : ''}${redis ? `    everesto.live/redis: ${redis.user}\n` : ''}    backstage.io/techdocs-ref: url:https://github.com/${OWNER}/${gitops}/tree/main\nspec:\n  type: gitops\n  owner: ${project}\n  system: ${project}\n  dependsOn: [component:default/${repo}]\n`,
   }]);
   done.push('catalog entry (CD card on the Pipelines page)');
 
@@ -171,7 +184,9 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     const stores = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
     const { slug, url } = infisicalStore(stores);
     if (!slug || !url) throw err(409, 'argocd/secret-stores.yaml is missing — cannot create prod');
-    await infisicalSetup(config, project, repo, 'prod', ((meta.secrets ?? []) as string[]).map(n => ({ name: n })));
+    // Redis switch: prod gets its OWN user + keys (never the dev data)
+    const redisProd = meta.redis ? await redisProvision(config, project, repo, 'prod') : undefined;
+    await infisicalSetup(config, project, repo, 'prod', [...((meta.secrets ?? []) as string[]).map(n => ({ name: n })), ...(redisProd?.secrets ?? [])]);
     files.push(
       {
         path: 'apps/prod/kustomization.yaml',
@@ -257,7 +272,9 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
     .then(() => done.push('ArgoCD apps, secret stores and ESO login: removed from git — ArgoCD deletes them within ~3 min'), () => undefined);
   const inf = await infisicalDelete(config, project, repo);
   done.push(...inf.done);
-  return { done, warn: [...inf.warn, 'kept: the images in ghcr.io'] };
+  const rds = await redisRemove(config, project, repo);
+  done.push(...rds.done);
+  return { done, warn: [...inf.warn, ...rds.warn, 'kept: the images in ghcr.io'] };
 }
 
 // ---------- new ESO login (lost / rotated) ----------

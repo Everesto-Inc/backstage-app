@@ -124,6 +124,12 @@ infisical:
   clientSecret: ${INFISICAL_CLIENT_SECRET}
   organizationId: ${INFISICAL_ORG_ID}
 
+# Redis switch of "Create deployment": per app an ACL user <space>-<repo> (+ -prod) with keys <user>:* only,
+# in the SHARED platform Redis (tools VM, Ansible 05_install_redis.yml). Backstage logs in as ACL user
+# "backstage", which may only manage users (no data access). Until REDIS_ADMIN_URL exists, the switch is refused.
+redis:
+  adminUrl: ${REDIS_ADMIN_URL}     # redis://backstage:<password>@<tools-ip>:6379 — Infisical project backstage / prod
+
 # TechDocs: build docs inside the pod with the mkdocs venv baked into the image (/opt/techdocs) — no Docker in K3s.
 techdocs:
   builder: 'local'

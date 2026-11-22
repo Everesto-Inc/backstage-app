@@ -181,6 +181,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
             healthPath: str(b.healthPath) || undefined,
             nsKey: str(b.nsKey).toLowerCase() || undefined,
             publicUrl: b.publicUrl !== false,
+            redis: b.redis === true,
           };
           try {
             const { refs, who } = await caller(req);

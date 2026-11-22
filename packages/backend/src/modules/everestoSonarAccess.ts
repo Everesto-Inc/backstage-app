@@ -6,7 +6,8 @@
  *                 viewers, developers        → Browse + See source
  *                 maintainers, managers      → + Administer issues / hotspots / the project
  *               the default group sonar-users (= everyone logged in) loses its rights there → other spaces see nothing
- *   owner       platform-team members → sonar-administrators
+ *   owner       platform-team members → sonar-administrators (GitHub accounts no longer in platform-team are removed;
+ *               local accounts such as "admin" are never touched)
  *   no space    projects of no DevOps Space (platform, other products): private, sonar-users loses its rights →
  *               only the owner sees them; new projects are private by default; users can't create projects
  *
@@ -16,6 +17,7 @@
  */
 import { Config } from '@backstage/config';
 import { sonarApi } from './everestoActions';
+import { ownerRemovals } from './everestoAccess';
 import type { Space } from './everestoAccess';
 
 export const SONAR_ROLES = ['viewers', 'developers', 'maintainers', 'managers'] as const;
@@ -101,14 +103,21 @@ export async function syncSonarAccess(config: Config, spaces: Space[], dryRun: b
     if (have.some(l => l.startsWith('#'))) out.warnings.push(`SonarQube: ${group} has a non-GitHub account — remove it by hand if unwanted`);
   };
 
-  // owner → sonar-administrators (never removes anyone there: the local admin account must stay)
+  // owner → sonar-administrators. Removes GitHub accounts no longer owners; local accounts (admin) always stay.
   const adminsId = await groupId('sonar-administrators', false);
   if (adminsId) {
     const mem = await call('GET', `/api/v2/authorizations/group-memberships?groupId=${adminsId}&pageSize=500`);
-    const ids = new Set(((mem.json?.groupMemberships ?? []) as any[]).map(m => m.userId));
+    const memberships = (mem.json?.groupMemberships ?? []) as { id: string; userId: string }[];
+    const ids = new Set(memberships.map(m => m.userId));
     for (const o of owners) {
       const u = byGithub.get(o);
       if (u && !ids.has(u.id)) await act(`add ${o} to sonar-administrators (owner)`, () => call('POST', '/api/v2/authorizations/group-memberships', { groupId: adminsId, userId: u.id }));
+    }
+    const ghOf = new Map([...byGithub.entries()].map(([login, u]) => [u.id, login]));
+    const githubAdmins = memberships.map(m => ghOf.get(m.userId)).filter((l): l is string => !!l); // local accounts: no GitHub login
+    for (const l of ownerRemovals(githubAdmins, owners)) {
+      const m = memberships.find(x => ghOf.get(x.userId) === l)!;
+      await act(`remove ${l} from sonar-administrators (no longer in platform-team)`, () => call('DELETE', `/api/v2/authorizations/group-memberships/${m.id}`));
     }
   }
 

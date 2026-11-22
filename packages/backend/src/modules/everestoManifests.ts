@@ -16,6 +16,7 @@ export type DeploymentInput = {
   replicas: number;
   healthPath?: string; // e.g. /health → HTTP probes; empty → TCP port check
   publicUrl?: boolean; // dev: ingress <repo>-dev.everesto.live (via alb wildcard → in-cluster Traefik)
+  redis?: boolean; // ACL user + key prefix in the shared platform Redis → REDIS_URL / REDIS_KEY_PREFIX (everestoRedis)
   nsKey?: string; // short namespace key → dev-<nsKey> / prod-<nsKey> (default: first word of the app name)
 };
 

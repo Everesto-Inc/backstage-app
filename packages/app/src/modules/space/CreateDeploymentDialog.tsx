@@ -69,6 +69,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const [replicas, setReplicas] = useState('1');
   const [health, setHealth] = useState('/health');
   const [publicUrl, setPublicUrl] = useState(true);
+  const [redis, setRedis] = useState(false);
   const [nsKey, setNsKey] = useState('');
   const key = (nsKey || repo.split('-')[0] || '').toLowerCase();
   const [busy, setBusy] = useState(false);
@@ -83,14 +84,14 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
     try {
       setResult(await api('POST', `/apps/${encodeURIComponent(repo)}/deployment`, {
         secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
-        port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, nsKey: key,
+        port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, redis, nsKey: key,
       }));
     } catch (e: any) {
       alertApi.post({ message: `Create deployment failed: ${e.message}`, severity: 'error' });
     } finally { setBusy(false); }
   };
 
-  const close = () => { setResult(undefined); setRepo(''); setSecrets([{ name: 'DATABASE_URL', value: '' }]); setConfig([]); onClose(); };
+  const close = () => { setResult(undefined); setRepo(''); setSecrets([{ name: 'DATABASE_URL', value: '' }]); setConfig([]); setRedis(false); onClose(); };
 
   return (
     <Dialog open={open} onClose={busy ? undefined : close} maxWidth="md" fullWidth>
@@ -144,6 +145,10 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
                 <FormControlLabel control={<Checkbox color="primary" checked={publicUrl} onChange={e => setPublicUrl(e.target.checked)} />}
                   label={<span><b>Public URL (dev)</b> <Typography component="span" variant="caption" color="textSecondary">https://{repo || '<app>'}-dev.everesto.live — ingress in apps/dev (prod URL: later)</Typography></span>} />
               </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel control={<Checkbox color="primary" checked={redis} onChange={e => setRedis(e.target.checked)} />}
+                  label={<span><b>Redis</b> <Typography component="span" variant="caption" color="textSecondary">own user + keys <b>{project}-{repo || '<app>'}:*</b> in the shared platform Redis (prod: <b>…-prod</b>) → secrets REDIS_URL + REDIS_KEY_PREFIX. The app must prefix its keys with REDIS_KEY_PREFIX.</Typography></span>} />
+              </Grid>
               <Grid item xs={12}><TextField fullWidth size="small" variant="outlined" label="Health check path" value={health} onChange={e => setHealth(e.target.value)}
                 helperText="HTTP GET → readiness + liveness probes (FastAPI skeleton: /health). Empty = only check that the port is open." /></Grid>
               <Grid item xs={4}><TextField fullWidth size="small" variant="outlined" label="Container port" value={port} onChange={e => setPort(e.target.value.replaceAll(/\D/g, ''))} /></Grid>
@@ -155,7 +160,8 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               <Box mt={2}>
                 <Typography variant="body2">Creates, in this order (stops before git if Infisical fails):</Typography>
                 <Box component="ol" pl={3} m={0} style={{ lineHeight: 1.7, fontSize: 14 }}>
-                  <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above (+ a read-only login for the cluster)</li>
+                  {redis && <li>Redis user <b>{project}-{repo}</b> in the shared Redis (keys <b>{project}-{repo}:*</b> only, no FLUSHALL / KEYS / CONFIG)</li>}
+                  <li>Infisical project <b>{repo}-gitops</b> → dev with the secrets above{redis ? ' + REDIS_URL / REDIS_KEY_PREFIX' : ''} (+ a read-only login for the cluster)</li>
                   <li>public repo <b>Everesto-Inc/{repo}-gitops</b> — apps/dev with the newest image of {repo} (no secret values)</li>
                   <li>ArgoCD app <b>dev-{repo}</b> + its cluster access to secrets — automatic (~3 min), then you click <b>Sync</b></li>
                 </Box>
