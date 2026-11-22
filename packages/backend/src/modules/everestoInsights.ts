@@ -11,6 +11,7 @@
  * Every route checks the caller's role itself (the UI only hides buttons). The app → space mapping comes from
  * the app registry (everestoRegistry), never from the repo.
  */
+import { envTemplate } from './everestoEnvTemplate';
 import { err, membersOf } from './everestoCommon';
 import { coreServices, createBackendPlugin } from '@backstage/backend-plugin-api';
 import Router from 'express-promise-router';
@@ -594,6 +595,16 @@ export const everestoInsightsPlugin = createBackendPlugin({
             // GitHub teams for the roles — in the background (the 30-min sync would do it too)
             runAccessSync(false).then(r => logger.info(`access sync after new space ${name}: ${r.actions.length} actions`), e => logger.warn(`access sync after new space ${name} failed: ${e}`));
             res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        // .env.example of the app → pre-filled secrets in "Create deployment"
+        router.get('/apps/:repo/env-template', async (req, res) => {
+          const { repo } = req.params;
+          if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
+          try {
+            const { refs } = await caller(req);
+            res.json(await envTemplate(config, repo, refs));
           } catch (e) { fail(res, e); }
         });
 

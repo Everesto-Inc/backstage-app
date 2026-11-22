@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusChainOf } from './StatusChain';
 import { useEveresto } from './api';
 import { BusyBar, BusyButton, SLOW_HINT } from './Busy';
@@ -21,7 +21,9 @@ import { STATUS } from '../tools/charts';
  * Backend: POST /api/everesto/apps/:repo/deployment (packages/backend/src/modules/everestoDeploy.ts).
  */
 type Result = { done: string[]; tag: string; commands: { title: string; cmd: string; secret?: boolean }[]; infisicalUrl?: string };
-type Row = { name: string; value: string };
+type Row = { name: string; value: string; required?: boolean; hint?: string; example?: string };
+type EnvTemplate = { found: boolean; path: string; url: string; vars: { name: string; required: boolean; hint?: string; example?: string }[] };
+const REDIS_PROVIDED = ['REDIS_URL', 'REDIS_KEY_PREFIX'];
 
 export const CmdBox = ({ title, cmd, secret }: { title: string; cmd: string; secret?: boolean }) => (
   <Box mt={2}>
@@ -37,19 +39,43 @@ export const CmdBox = ({ title, cmd, secret }: { title: string; cmd: string; sec
 
 const VAR = /^[A-Z][A-Z0-9_]{0,63}$/;
 
-const Rows = ({ title, hint, rows, setRows, secret }: { title: string; hint: string; rows: Row[]; setRows: (r: Row[]) => void; secret?: boolean }) => (
+/** Placeholder of a value field: what the user should type (or why it's not needed). */
+function valuePlaceholder(r: Row, secret: boolean | undefined, exempt: string[]) {
+  if (r.required && exempt.includes(r.name)) return 'set by the Redis switch';
+  if (r.example) return `e.g. ${r.example}`;
+  if (!secret) return 'value';
+  return r.required ? 'value (required)' : 'value (optional — or set it in Infisical)';
+}
+
+/** Where the pre-filled secrets came from (or how to get that). */
+const TemplateNote = ({ repo, template }: { repo: string; template?: EnvTemplate }) => {
+  if (template?.found && !template.vars.length) {
+    return <><a href={template.url} target="_blank" rel="noopener">{template.path}</a> has no variables yet — add one <code>NAME=</code> per line (<code># optional</code> for optional ones).</>;
+  }
+  if (template?.found) {
+    const required = template.vars.filter(v => v.required).length;
+    return <>Pre-filled from <a href={template.url} target="_blank" rel="noopener">{template.path}</a>: {required} required (fill them), {template.vars.length - required} optional (empty = CHANGE_ME, set later in Infisical).</>;
+  }
+  if (repo) return <>No {template?.path ?? '.env.example'} in {repo} — add one (one <code>NAME=</code> per line, <code># optional</code> for optional ones) and this list fills itself.</>;
+  return <>Pick an application: its <code>.env.example</code> fills this list.</>;
+};
+
+const Rows = ({ title, hint, rows, setRows, secret, exempt = [] }: { title: string; hint: React.ReactNode; rows: Row[]; setRows: (r: Row[]) => void; secret?: boolean; exempt?: string[] }) => (
   <Box mt={2}>
     <Typography variant="subtitle2">{title}</Typography>
     <Typography variant="caption" color="textSecondary">{hint}</Typography>
     {rows.map((r, i) => (
       <Box key={i} display="flex" style={{ gap: 8 }} mt={1}>
         <TextField size="small" variant="outlined" placeholder="NAME" value={r.name} style={{ flex: 1 }}
-          error={!!r.name && !VAR.test(r.name)}
+          error={!!r.name && !VAR.test(r.name)} disabled={r.required}
+          helperText={r.required ? 'required (.env.example)' : undefined}
           onChange={e => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value.toUpperCase().replaceAll(/[^A-Z0-9_]/g, '_') } : x)))} />
-        <TextField size="small" variant="outlined" placeholder={secret ? 'value (optional — or set it in Infisical)' : 'value'} value={r.value}
-          type={secret ? 'password' : 'text'} autoComplete="new-password" style={{ flex: 1.4 }}
+        <TextField size="small" variant="outlined" value={r.value}
+          placeholder={valuePlaceholder(r, secret, exempt)}
+          error={!!r.required && !exempt.includes(r.name) && !r.value.trim()} disabled={exempt.includes(r.name)}
+          helperText={r.hint} type={secret ? 'password' : 'text'} autoComplete="new-password" style={{ flex: 1.4 }}
           onChange={e => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} />
-        <IconButton size="small" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Close fontSize="small" /></IconButton>
+        {r.required ? <Box width={30} /> : <IconButton size="small" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Close fontSize="small" /></IconButton>}
       </Box>
     ))}
     <Button size="small" startIcon={<AddIcon />} onClick={() => setRows([...rows, { name: '', value: '' }])}>Add</Button>
@@ -62,7 +88,8 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const alertApi = useApi(alertApiRef);
   const candidates = apps.filter(a => a.metadata.annotations?.['everesto.live/image']);
   const [repo, setRepo] = useState('');
-  const [secrets, setSecrets] = useState<Row[]>([{ name: 'DATABASE_URL', value: '' }]);
+  // Secrets come ONLY from the app's .env.example (no built-in defaults)
+  const [secrets, setSecrets] = useState<Row[]>([]);
   const [config, setConfig] = useState<Row[]>([]);
   const [port, setPort] = useState('8080');
   const [memory, setMemory] = useState('192');
@@ -70,20 +97,35 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
   const [health, setHealth] = useState('/health');
   const [publicUrl, setPublicUrl] = useState(true);
   const [redis, setRedis] = useState(false);
+  const [template, setTemplate] = useState<EnvTemplate | undefined>();
   const [nsKey, setNsKey] = useState('');
   const key = (nsKey || repo.split('-')[0] || '').toLowerCase();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | undefined>();
   const argocd = TOOLS.find(t => t.id === 'cd')!;
   const infisical = TOOLS.find(t => t.id === 'secrets')!;
-  const valid = repo && [...secrets, ...config].every(r => !r.name || VAR.test(r.name));
+  const valid = repo && [...secrets, ...config].every(r => !r.name || VAR.test(r.name));  // + missing (below)
 
   const api = useEveresto();
+  // Secrets come from the app's .env.example: required ones locked + must be filled, optional ones removable.
+  useEffect(() => {
+    if (!repo) { setTemplate(undefined); return undefined; }
+    let live = true;
+    api('GET', `/apps/${encodeURIComponent(repo)}/env-template`).then((tpl: EnvTemplate) => {
+      if (!live) return;
+      setTemplate(tpl);
+      setSecrets(tpl.vars.map(v => ({ name: v.name, value: '', required: v.required, hint: v.hint, example: v.example })));
+    }, () => { if (live) { setTemplate(undefined); setSecrets([]); } });
+    return () => { live = false; };
+  }, [repo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const exempt = redis ? REDIS_PROVIDED : [];
+  const missing = secrets.filter(s => s.required && !exempt.includes(s.name) && !s.value.trim()).map(s => s.name);
+
   const create = async () => {
     setBusy(true);
     try {
       setResult(await api('POST', `/apps/${encodeURIComponent(repo)}/deployment`, {
-        secrets: secrets.filter(s => s.name), config: config.filter(c => c.name),
+        secrets: secrets.filter(s => s.name && !exempt.includes(s.name)).map(({ name, value }) => ({ name, value })), config: config.filter(c => c.name),
         port: Number(port), memoryMi: Number(memory), replicas: Number(replicas), healthPath: health.trim(), publicUrl, redis, nsKey: key,
       }));
     } catch (e: any) {
@@ -91,7 +133,7 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
     } finally { setBusy(false); }
   };
 
-  const close = () => { setResult(undefined); setRepo(''); setSecrets([{ name: 'DATABASE_URL', value: '' }]); setConfig([]); setRedis(false); onClose(); };
+  const close = () => { setResult(undefined); setRepo(''); setSecrets([]); setConfig([]); setRedis(false); setTemplate(undefined); onClose(); };
 
   return (
     <Dialog open={open} onClose={busy ? undefined : close} maxWidth="md" fullWidth>
@@ -130,8 +172,11 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
               {candidates.map(a => <MenuItem key={a.metadata.name} value={a.metadata.name}>{a.metadata.name} — {a.metadata.annotations?.['everesto.live/image']}</MenuItem>)}
             </TextField>
 
-            <Rows title="Secrets → Infisical" secret rows={secrets} setRows={setSecrets}
-              hint={`Stored in Infisical project ${repo || '<app>'}-gitops → dev, never in git. Empty value = CHANGE_ME, set it in Infisical later.`} />
+            <Rows title="Secrets → Infisical" secret rows={secrets} setRows={setSecrets} exempt={exempt}
+              hint={<>
+                Stored in Infisical project {repo || '<app>'}-gitops → dev, never in git.{' '}
+                <TemplateNote repo={repo} template={template} />
+              </>} />
             <Rows title="Config (not secret)" rows={config} setRows={setConfig} hint="Plain environment variables, written into the deployment (visible in git), e.g. LOG_LEVEL=info" />
 
             <Grid container spacing={2} style={{ marginTop: 8 }}>
@@ -174,7 +219,8 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
         {result ? <Button color="primary" onClick={close}>Close</Button> : (
           <>
             <Button onClick={close} disabled={busy}>Cancel</Button>
-            <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Creating…" disabled={!valid} onClick={create}>Create deployment</BusyButton>
+            {missing.length > 0 && <Typography variant="caption" color="error" style={{ marginRight: 8 }}>Required: {missing.join(', ')}</Typography>}
+            <BusyButton color="primary" variant="contained" disableElevation busy={busy} busyLabel="Creating…" disabled={!valid || missing.length > 0} onClick={create}>Create deployment</BusyButton>
           </>
         )}
       </DialogActions>

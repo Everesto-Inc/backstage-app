@@ -31,6 +31,7 @@ import { ROLE } from './everestoRoles';
 import { argoApp } from './everestoK8s';
 import { OWNER, PROTECTED_SYSTEMS, allowed, isProtected, appInfo, commit, readFile } from './everestoManage';
 import { REDIS_SECRET_NAMES, redisConfigured, redisProvision, redisRemove } from './everestoRedis';
+import { missingRequired, readEnvTemplate } from './everestoEnvTemplate';
 
 // public API of the deployment modules (callers import from here)
 export { NS_KEY, devHost, ns } from './everestoManifests';
@@ -78,6 +79,10 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     if (clash) throw err(400, `${clash.name} is set by the Redis switch — remove it from secrets/config`);
     if (!redisConfigured(config)) throw err(409, 'Redis is not connected to Backstage yet (REDIS_ADMIN_URL) — create the deployment without Redis, or ask the platform team');
   }
+  // The app's .env.example declares what it needs: required variables must get a value (secret or config).
+  const template = await readEnvTemplate(token, repo);
+  const missing = missingRequired(template.vars, [...d.secrets, ...d.config], d.redis ? REDIS_SECRET_NAMES : []);
+  if (missing.length) throw err(400, `${repo}/.env.example requires a value for: ${missing.join(', ')}`);
   const nsKey = (d.nsKey || repo.split('-')[0]).toLowerCase();
   if (!NS_KEY.test(nsKey)) throw err(400, 'namespace name: a-z 0-9 - (max 42), e.g. python');
   const gitops = `${repo}-gitops`;
