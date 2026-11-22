@@ -2,15 +2,16 @@
  * everesto deploy — CD for an existing CI application (maintainers / owners; delete = owners).
  *
  * Flow (decided 2026-11-14):
- *   createDeployment → 1. Infisical FIRST: project <repo>-gitops (one per application) with the app's secrets
+ *   createDeployment → 1. Infisical FIRST: project <space>-<repo>-gitops (one per application) with the app's secrets
  *                         in dev, identity eso-<repo> (viewer). Not connected / fails → nothing is created.
  *                      2. public repo <repo>-gitops: apps/dev (+ argocd/argocd.yaml, argocd/secret-stores.yaml)
  *                      3. catalog Resource <repo>-gitops in the app's catalog-info.yaml
  *   deploy(tag)       → commit the chosen image tag into apps/dev. CI NEVER deploys.
  *   promote           → PR in <repo>-gitops: prod tag := dev tag. First promote also creates apps/prod,
- *                       the prod secrets in Infisical <repo>-gitops (same names, CHANGE_ME values) and
+ *                       the prod secrets in Infisical <space>-<repo>-gitops (same names, CHANGE_ME values) and
  *                       argocd/argocd-prod.yaml.
- *   deleteDeployment  → deletes <repo>-gitops, catalog Resource, Infisical project <repo>-gitops + identity eso-<repo>.
+ *   deleteDeployment  → deletes <repo>-gitops, catalog Resource, Infisical project <space>-<repo>-gitops + identity eso-<repo>.
+ *   (Infisical projects created before 2026-11-22 are named <repo>-gitops — still found, see everestoInfisical.)
  *                       Kept: ghcr.io images, cluster secret infisical-<repo>-auth.
  * Every ArgoCD sync is MANUAL. Backstage writes git only; ArgoCD creates the cluster objects (app-of-apps).
  *
@@ -18,7 +19,7 @@
  */
 import { DeploymentInput, NS_KEY, Env, NAME, appProject, application, deployment, devHost, externalSecret, header, ingress, kustomization, ns, secretStore, service } from './everestoManifests';
 import { err } from './everestoCommon';
-import { infisical, infisicalDelete, infisicalSetup } from './everestoInfisical';
+import { findInfisicalProject, infisical, infisicalDelete, infisicalProject, infisicalSetup } from './everestoInfisical';
 import { applySecretsCmd, mkdocs, runbook } from './everestoRunbook';
 import { PLATFORM_FILES, PLATFORM_REPO, nsKeyFree, nsKeyOf, sizeOf, platformStore, rotateEsoLogin, tenantYaml, writeTenant } from './everestoTenants';
 import { Config } from '@backstage/config';
@@ -78,7 +79,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
   if (!last) throw err(409, `${repo} has no successful build on main yet — no image to deploy`);
 
   // 1. Infisical FIRST — if this fails nothing else is created
-  const inf = await infisicalSetup(config, repo, 'dev', d.secrets);
+  const inf = await infisicalSetup(config, project, repo, 'dev', d.secrets);
   const done = [`Infisical project ${inf.project} / dev: ${d.secrets.length} secret(s)${d.secrets.some(s => !s.value) ? ' (empty ones = CHANGE_ME, set them in Infisical)' : ''}`];
 
   // 2. gitops repo (public: no secret values inside)
@@ -101,7 +102,7 @@ export async function createDeployment(config: Config, repo: string, d: Deployme
     { path: 'deployment.json', content: `${JSON.stringify({ nsKey, port: d.port, memoryMi: d.memoryMi, replicas: d.replicas, healthPath: d.healthPath, publicUrl: d.publicUrl !== false, config: d.config, secrets: d.secrets.map(s => s.name) }, null, 2)}\n` },
     { path: 'docs/index.md', content: runbook(repo, project, false, nsKey) },
     { path: 'mkdocs.yml', content: mkdocs(repo) },
-    { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${gitops}\` (dev / prod), via ESO. Never in this repo.\n` },
+    { path: 'README.md', content: `# ${gitops}\n\nRunbook: docs/index.md (Tech Docs tab in Backstage).\n\nCD of [${repo}](https://github.com/${OWNER}/${repo}) (project **${project}**), managed by Backstage.\n\n- **dev** (\`apps/dev\`, ns \`${ns(project, 'dev')}\`): Backstage "Deploy" sets the image tag → Sync in ArgoCD.\n- **prod** (\`apps/prod\`, ns \`${ns(project, 'prod')}\`): created by the first "Promote to prod" (PR) → Sync in ArgoCD.\n- Secrets: Infisical project \`${inf.project}\` (dev / prod), via ESO. Never in this repo.\n` },
   ]);
   done.push(`repo ${OWNER}/${gitops} (apps/dev, image ${last.tag})${d.publicUrl !== false ? ` — URL https://${devHost(repo)} after Sync` : ''}`);
 
@@ -170,7 +171,7 @@ export async function promote(config: Config, repo: string, refs: string[], who:
     const stores = (await readFile(token, gitops, 'argocd/secret-stores.yaml')) ?? '';
     const { slug, url } = infisicalStore(stores);
     if (!slug || !url) throw err(409, 'argocd/secret-stores.yaml is missing — cannot create prod');
-    await infisicalSetup(config, repo, 'prod', ((meta.secrets ?? []) as string[]).map(n => ({ name: n })));
+    await infisicalSetup(config, project, repo, 'prod', ((meta.secrets ?? []) as string[]).map(n => ({ name: n })));
     files.push(
       {
         path: 'apps/prod/kustomization.yaml',
@@ -254,7 +255,7 @@ export async function deleteDeployment(config: Config, repo: string, refs: strin
   // ArgoCD objects: remove the tenant file → ArgoCD deletes the apps (pods), stores and login by itself
   await writeTenant(token, project, repo, null, `tenants: ${project}/${repo} removed (Backstage, by ${who})`, '')
     .then(() => done.push('ArgoCD apps, secret stores and ESO login: removed from git — ArgoCD deletes them within ~3 min'), () => undefined);
-  const inf = await infisicalDelete(config, repo);
+  const inf = await infisicalDelete(config, project, repo);
   done.push(...inf.done);
   return { done, warn: [...inf.warn, 'kept: the images in ghcr.io'] };
 }
@@ -279,7 +280,7 @@ export async function newEsoLogin(config: Config, repo: string, refs: string[], 
   };
 }
 
-// ---------- secrets of a deployment (Infisical <repo>-gitops) — values are write-only ----------
+// ---------- secrets of a deployment (Infisical <space>-<repo>-gitops) — values are write-only ----------
 // dev: developers / maintainers / owners · prod: maintainers / owners. Listing (names only): any member.
 
 const SECRET_ROLES: Record<Env, string[]> = { dev: [...ROLE.DEV], prod: [...ROLE.PROD] }; // prod secrets: managers
@@ -288,8 +289,8 @@ async function secretsCtx(config: Config, repo: string) {
   const token = await githubToken(config, OWNER);
   const { project } = await appInfo(token, repo);
   const { api } = await infisical(config);
-  const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
-  if (!ws) throw err(404, `Infisical project ${repo}-gitops not found — create the deployment first`);
+  const ws = await findInfisicalProject(api, project, repo);
+  if (!ws) throw err(404, `Infisical project ${infisicalProject(project, repo)} not found — create the deployment first`);
   return { project, api, ws, nsKey: await nsKeyOf(token, repo, project) };
 }
 

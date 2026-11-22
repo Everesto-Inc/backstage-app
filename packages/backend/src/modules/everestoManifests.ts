@@ -181,7 +181,7 @@ spec:
   ports: [{ port: 80, targetPort: ${port} }]
 `;
 
-export const externalSecret = (repo: string, _project: string, env: Env) => `# All secrets of Infisical project "${repo}-gitops", env ${env} → Secret "${repo}"
+export const externalSecret = (repo: string, project: string, env: Env) => `# All secrets of Infisical project "${project}-${repo}-gitops" (older apps: "${repo}-gitops"), env ${env} → Secret "${repo}"
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:

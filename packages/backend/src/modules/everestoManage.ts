@@ -220,7 +220,7 @@ export async function deleteApp(
     await removeTenant(token, project, repo, 'Backstage').then(
       () => done.push('ArgoCD apps, secret stores and ESO login: removed from git — ArgoCD deletes them within ~3 min'),
       e => warn.push(`tenant file not removed: ${e}`));
-    const inf = await infisicalDelete(config, repo);
+    const inf = await infisicalDelete(config, project, repo);
     done.push(...inf.done);
     warn.push(...inf.warn);
   }

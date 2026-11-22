@@ -1,4 +1,4 @@
-/** Infisical client for deployments: one project <repo>-gitops per application, identity eso-<repo>. */
+/** Infisical client for deployments: one project <space>-<repo>-gitops per application, identity eso-<repo>. */
 import { Config } from '@backstage/config';
 import { Env } from './everestoManifests';
 import { err } from './everestoCommon';
@@ -31,17 +31,32 @@ export async function infisical(config: Config) {
   return { url, orgId, api };
 }
 
-/** Infisical project <repo>-gitops (one per application) + its secrets in <env>. Returns slug and (only when new) the ESO identity login. */
-export async function infisicalSetup(config: Config, repo: string, env: Env, secrets: { name: string; value?: string }[]) {
+// ---------- project naming ----------
+// Infisical has no folders/tags for projects, so the DevOps space goes FIRST in the name:
+// the project list then groups by space (search "orchid" → all of orchid's applications).
+/** Infisical project of an application (since 2026-11-22): <space>-<repo>-gitops, e.g. orchid-maas-backend-gitops. */
+export const infisicalProject = (space: string, repo: string) => `${space}-${repo}-gitops`;
+/** Name used before 2026-11-22 — still recognised, so existing deployments (python-backend-gitops) keep working. */
+export const legacyInfisicalProject = (repo: string) => `${repo}-gitops`;
+
+type Api = Awaited<ReturnType<typeof infisical>>['api'];
+/** The application's Infisical project: new name first, then the legacy one. undefined = none yet. */
+export async function findInfisicalProject(api: Api, space: string, repo: string): Promise<any | undefined> {
+  const all = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []) as any[];
+  return all.find(w => w.name === infisicalProject(space, repo)) ?? all.find(w => w.name === legacyInfisicalProject(repo));
+}
+
+/** Infisical project <space>-<repo>-gitops (one per application) + its secrets in <env>. Returns slug and (only when new) the ESO identity login. */
+export async function infisicalSetup(config: Config, space: string, repo: string, env: Env, secrets: { name: string; value?: string }[]) {
   const { url, orgId, api } = await infisical(config);
-  const project = `${repo}-gitops`;
-  const list = await api('GET', '/api/v1/workspace');
-  let ws = (list.json?.workspaces ?? []).find((w: any) => w.name === project);
+  let ws = await findInfisicalProject(api, space, repo); // existing (new or legacy name) → reused as is
   if (!ws) {
+    const project = infisicalProject(space, repo);
     const created = await api('POST', '/api/v2/workspace', { projectName: project, organizationId: orgId });
     if (!created.ok) throw err(502, `Infisical: cannot create project ${project} (${created.status})`);
     ws = created.json.project ?? created.json.workspace;
   }
+  const project = ws.name as string;
   for (const s of secrets) {
     const r = await api('POST', `/api/v3/secrets/raw/${encodeURIComponent(s.name)}`, {
       workspaceId: ws.id, environment: env, secretPath: '/', secretValue: s.value || 'CHANGE_ME', type: 'shared',
@@ -65,17 +80,17 @@ export async function infisicalSetup(config: Config, repo: string, env: Env, sec
   return { ...base, clientId: ua.json.identityUniversalAuth?.clientId as string, clientSecret: cs.json.clientSecret as string };
 }
 
-/** Delete Infisical project <repo>-gitops + identity eso-<repo> (part of deleting the deployment). */
-export async function infisicalDelete(config: Config, repo: string): Promise<{ done: string[]; warn: string[] }> {
+/** Delete Infisical project <space>-<repo>-gitops (or its legacy name) + identity eso-<repo> (part of deleting the deployment). */
+export async function infisicalDelete(config: Config, space: string, repo: string): Promise<{ done: string[]; warn: string[] }> {
   const done: string[] = [];
   const warn: string[] = [];
   let conn;
-  try { conn = await infisical(config); } catch (e: any) { return { done, warn: [`Infisical not reachable — delete project ${repo}-gitops by hand (${e.message})`] }; }
+  try { conn = await infisical(config); } catch (e: any) { return { done, warn: [`Infisical not reachable — delete project ${infisicalProject(space, repo)} (or ${legacyInfisicalProject(repo)}) by hand (${e.message})`] }; }
   const { orgId, api } = conn;
-  const ws = ((await api('GET', '/api/v1/workspace')).json?.workspaces ?? []).find((w: any) => w.name === `${repo}-gitops`);
+  const ws = await findInfisicalProject(api, space, repo);
   if (ws) {
     const d = await api('DELETE', `/api/v1/workspace/${ws.id}`);
-    if (d.ok) done.push(`Infisical project ${repo}-gitops (all its secrets)`); else warn.push(`could not delete Infisical project ${repo}-gitops (${d.status})`);
+    if (d.ok) done.push(`Infisical project ${ws.name} (all its secrets)`); else warn.push(`could not delete Infisical project ${ws.name} (${d.status})`);
   }
   const ids = await api('GET', `/api/v2/organizations/${orgId}/identity-memberships`);
   const id = (ids.json?.identityMemberships ?? []).find((m: any) => m.identity?.name === `eso-${repo}`)?.identity?.id;
