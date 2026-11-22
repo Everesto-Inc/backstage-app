@@ -17,7 +17,7 @@ describe('Loop v1.1 ci.yml', () => {
   });
 
   it('keeps GitHub expressions literal', () => {
-    expect(ci).toContain('group: ci-${{ github.ref }}');
+    expect(ci).toContain("group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}");
   });
 
   it('private repos build on x86 (arm runners are free for public repos only)', () => {
@@ -50,18 +50,24 @@ describe('dependabotYml', () => {
     expect(parse(dependabotYml('python')).updates.map((u: any) => u['package-ecosystem'])).toEqual(['pip', 'docker', 'github-actions']);
     expect(parse(dependabotYml('docker')).updates.map((u: any) => u['package-ecosystem'])).toEqual(['docker', 'github-actions']);
   });
+  it('never proposes a new Python / Node / Java version of a base image', () => {
+    const docker = parse(dependabotYml('python')).updates.find((u: any) => u['package-ecosystem'] === 'docker');
+    expect(docker.ignore).toEqual([{ 'dependency-name': '*', 'update-types': ['version-update:semver-major', 'version-update:semver-minor'] }]);
+  });
 });
 
 describe('normalizeCi', () => {
   const OLD = 'e394b20eb4ff123bbb0a9362c5de98d756b32a22';
   const old = ciYml('maas-backend', 'python', SW, 'ubuntu-latest')
     .replace(/ {4}secrets:\n {6}SONAR_TOKEN:.*\n/, '    secrets: inherit\n')
-    .replace(`@${LOOP.sha} # ${LOOP.version}`, `@${OLD} # v1.1.0`);
+    .replace(`@${LOOP.sha} # ${LOOP.version}`, `@${OLD} # v1.1.0`)
+    .replace(/^ {2}# pull requests:.*\n {2}group: .*$/m, '  group: ci-${{ github.ref }}');
   it('replaces secrets: inherit and bumps the v1.1 patch release', () => {
     const r = normalizeCi(old);
     expect(parse(r.ci).jobs.loop.secrets).toEqual({ SONAR_TOKEN: '${{ secrets.SONAR_TOKEN }}' });
     expect(r.ci).toContain(`pipeline.yml@${LOOP.sha} # ${LOOP.version}`);
-    expect(r.done).toEqual(['pass only SONAR_TOKEN to Loop (no more `secrets: inherit`)', `Loop v1.1.0 → ${LOOP.version}`]);
+    expect(r.done).toEqual(['pass only SONAR_TOKEN to Loop (no more `secrets: inherit`)', 'runs on main are never cancelled any more', `Loop v1.1.0 → ${LOOP.version}`]);
+    expect(r.ci).toBe(ciYml('maas-backend', 'python', SW, 'ubuntu-latest'));
     expect(readSwitches(r.ci)).toEqual(SW);
   });
   it('leaves a current file alone', () => {

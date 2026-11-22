@@ -17,7 +17,7 @@
 import { err } from './everestoCommon';
 
 /** The Loop release new and imported pipelines use — bump with each Loop release. */
-export const LOOP = { sha: 'd2145b8c2dd821a2a173b73507c98b4254c336a7', version: 'v1.1.1' } as const;
+export const LOOP = { sha: '4d70c4efcdad7bd522d60fe13d6c324a83fe0936', version: 'v1.1.2' } as const;
 
 export type Stack = 'python' | 'java' | 'docker';
 export const STACKS: Stack[] = ['python', 'java', 'docker'];
@@ -32,10 +32,14 @@ export const loopRef = (ci: string) => {
   return m ? { sha: m[1], version: m[2] } : undefined;
 };
 
+const MAIN_NEVER_CANCELLED = "  # pull requests: a newer push cancels the older run · main: every commit finishes (each one publishes an image)\n"
+  + "  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}";
+
 /**
  * Pure: bring an existing v1.1.x ci.yml up to the current release — run by Edit pipeline on every save.
  *   - `secrets: inherit` → only SONAR_TOKEN (Semgrep: yaml.github-actions.security.secrets-inherit)
  *   - Loop v1.1.<old> → LOOP (same minor only; a new minor is an upgrade the team decides)
+ *   - runs on main never cancelled (concurrency group per commit on main, per ref on pull requests)
  */
 export function normalizeCi(ciIn: string) {
   let ci = ciIn;
@@ -43,6 +47,11 @@ export function normalizeCi(ciIn: string) {
   if (/^ {4}secrets: inherit *$/m.test(ci)) {
     ci = ci.replace(/^ {4}secrets: inherit *$/m, '    secrets:\n      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # only what Loop needs — never `inherit` (least privilege)');
     done.push('pass only SONAR_TOKEN to Loop (no more `secrets: inherit`)');
+  }
+  const oldGroup = /^ {2}group: ci-\$\{\{ github\.ref \}\} *$/m;
+  if (oldGroup.test(ci)) {
+    ci = ci.replace(oldGroup, MAIN_NEVER_CANCELLED);
+    done.push('runs on main are never cancelled any more');
   }
   const ref = loopRef(ci);
   const minor = (v: string) => v.split('.').slice(0, 2).join('.');
@@ -71,7 +80,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-\${{ github.ref }}
+  # pull requests: a newer push cancels the older run · main: every commit finishes (each one publishes an image)
+  group: ci-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -132,6 +142,9 @@ ${lang ? `  - package-ecosystem: ${lang}
     directory: /
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }
+    ignore:   # base images: patch + security only — a new Python / Node / Java version is a deliberate, tested change
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
