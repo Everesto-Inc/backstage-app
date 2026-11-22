@@ -105,7 +105,7 @@ export const ProjectPipelines = () => {
 
   const createButtons = canCreateCi && (
     <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
-      {canCreate && <Button variant="outlined" color="primary" startIcon={<CallReceivedIcon />} onClick={() => setImporting(true)}>Import repository</Button>}
+      {canCreate && <Button variant="contained" color="primary" disableElevation startIcon={<CallReceivedIcon />} onClick={() => setImporting(true)}>Import repository</Button>}
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
       {canCreate && <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>}
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('python')}>Create pipeline</Button>

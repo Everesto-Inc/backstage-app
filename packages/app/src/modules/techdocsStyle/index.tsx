@@ -2,7 +2,8 @@
  * TechDocs look & feel for every doc on the platform (Content addon → CSS inside the docs' shadow DOM):
  *   - sidebar: clearer entries; the CURRENT page highlighted (bold, coloured bar + tinted background)
  *     instead of Backstage's default underline
- *   - Previous / Next: visible coloured buttons (Backstage keeps MkDocs' footer but makes it transparent)
+ *   - Previous / Next: small outlined buttons at the end of the page, aligned with the text (Backstage pins
+ *     MkDocs' footer to the bottom of the window, where it floats over the content)
  * Uses the theme's colours (--md-primary-fg-color), so light and dark mode both work.
  */
 import { useEffect } from 'react';
@@ -35,21 +36,74 @@ a.md-nav__link--active {
 }
 .md-nav--primary > .md-nav__title { font-weight: 700; font-size: 1.05em; }
 
-/* ---- Previous / Next ---- */
-.md-footer { background: transparent !important; }
-.md-footer__inner { padding: 0 8px 10px; }
-.md-footer__link {
-  background: var(--md-primary-fg-color);
-  color: var(--md-primary-bg-color, #fff) !important;
-  border-radius: 10px;
-  padding: 8px 14px;
-  margin: 0 6px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+/* ---- Previous / Next: small outlined buttons at the END of the page (not floating over the text) ---- */
+.md-footer {
+  position: static !important;
+  background: transparent !important;
+  pointer-events: auto !important;
+}
+.md-footer__inner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 16rem 32px 16rem;   /* aligned with the text column (16rem sidebars) */
+  padding: 16px 0 0;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+.md-footer__link,
+.md-footer-nav__link {
+  width: auto !important;
+  max-width: 48%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px !important;
+  margin: 0 !important;
+  border: 1px solid color-mix(in srgb, var(--md-primary-fg-color) 50%, transparent);
+  border-radius: 8px;
+  background: transparent !important;
+  color: var(--md-primary-fg-color) !important;
+  box-shadow: none !important;
   opacity: 1 !important;
 }
-.md-footer__link:hover { filter: brightness(1.1); }
-.md-footer__title { font-weight: 600; }
-.md-footer__direction { opacity: 0.85; }
+.md-footer__link:hover,
+.md-footer-nav__link:hover {
+  background: color-mix(in srgb, var(--md-primary-fg-color) 10%, transparent) !important;
+}
+.md-footer__link--next { margin-left: auto !important; }
+.md-footer__button {
+  position: static !important;
+  flex-shrink: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.md-footer__title { flex: 0 0 auto; display: flex; flex-direction: column; max-width: none !important; min-width: max-content; }
+.md-footer__button svg { width: 16px; height: 16px; }
+.md-footer__title {
+  position: static !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.md-footer__title,
+.md-footer__title .md-ellipsis {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap;
+}
+.md-footer__direction {
+  position: static !important;
+  display: inline;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.75;
+}
+@media screen and (max-width: 76.1875em) {
+  .md-footer__inner { margin: 8px 16px 24px; }
+}
 `;
 
 /** Keeps the style in the docs' shadow root (re-adds it if a page change replaces the content). */
