@@ -27,6 +27,7 @@ export type Facts = {
   dependabot: boolean;
   dependabotPrAges: number[];                // days open, Dependabot PRs only
   loopUsed?: string;                         // e.g. v1.0.0 (undefined = pipeline not on Loop)
+  trivyReport?: boolean;                     // Loop v1.1 "trivy: report" — scans run but never fail
   loopLatest?: string;
   docs: boolean;
   deployed: boolean;
@@ -75,7 +76,7 @@ export function scoreChecks(f: Facts): Check[] {
   else if (f.lastMainRun === 'none') ciState = 'fail';
 
   let vulnState: CheckState = 'na';
-  if (ci) vulnState = pick<CheckState>([[!scanned, 'unknown'], [failing.length, 'fail']], 'pass');
+  if (ci) vulnState = pick<CheckState>([[!scanned, 'unknown'], [failing.length, 'fail'], [!!f.trivyReport, 'fail']], 'pass');
 
   let secretsState: CheckState = 'na';
   if (f.deployed) secretsState = pick<CheckState>([[f.placeholders === undefined, 'unknown'], [placeholders, 'fail']], 'pass');
@@ -113,8 +114,8 @@ export function scoreChecks(f: Facts): Check[] {
     c('ci', 'CI green on main', 'bronze', ciState,
       ciState === 'na' ? 'repository without CI' : `last main run: ${f.lastMainRun ?? 'unknown'}`, 'Open the failed run (CI tab) and fix the failing step, or click Run build.'),
     c('vulns', 'No critical findings', 'bronze', vulnState,
-      pick([[failing.length, `failing: ${failing.join(', ')}`], [vulnState === 'pass', 'Gitleaks, Trivy (and Semgrep if on) passed'], [vulnState === 'na', 'no CI']], 'no scan results yet'),
-      'Security tab shows the finding and the fix (upgrade the dependency, rebuild the image, remove the secret).'),
+      pick([[failing.length, `failing: ${failing.join(', ')}`], [!!f.trivyReport && ci, 'Trivy in REPORT mode — vulnerabilities do not fail the build'], [vulnState === 'pass', 'Gitleaks, Trivy (and Semgrep if on) passed'], [vulnState === 'na', 'no CI']], 'no scan results yet'),
+      f.trivyReport ? 'Fix the findings (Security tab), then Edit pipeline → Trivy: Enforce.' : 'Security tab shows the finding and the fix (upgrade the dependency, rebuild the image, remove the secret).'),
     c('secrets', 'Secrets complete', 'bronze', secretsState,
       pick([[secretsState === 'na', 'not deployed'], [placeholders, `${placeholders} secret(s) still CHANGE_ME`], [secretsState === 'pass', 'all secrets set']], 'secret list not readable'),
       'Deployment → Secrets tab: set the values marked CHANGE_ME.'),
@@ -189,7 +190,9 @@ export async function collectFacts(config: Config, repo: string, sonarKey: strin
     sonar: ins?.sonar,
     dependabot: !!dependabotYml,
     dependabotPrAges: ((ins?.code?.openPulls ?? []) as any[]).filter(p => /dependabot/i.test(String(p.author))).map(p => days(p.createdAt) ?? 0),
-    loopUsed: ciYml?.match(/Everesto-Inc\/loop\/stages\/[a-z-]+@[0-9a-f]{40} # (v[\d.]+)/)?.[1],
+    // v1.0: stages/<stage>@sha · v1.1: .github/workflows/pipeline.yml@sha
+    loopUsed: ciYml?.match(/Everesto-Inc\/loop\/(?:stages\/[a-z-]+|\.github\/workflows\/pipeline\.yml)@[0-9a-f]{40} # (v[\d.]+)/)?.[1],
+    trivyReport: !!ciYml && /^ {6}trivy: *report *$/m.test(ciYml),
     loopLatest: latest,
     docs: !!mkdocs,
     deployed,

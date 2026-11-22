@@ -10,6 +10,8 @@ import { useSpaceRole, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
 import { CreateDeploymentDialog } from './CreateDeploymentDialog';
+import { ImportRepoDialog } from './ImportRepoDialog';
+import CallReceivedIcon from '@material-ui/icons/CallReceived';
 import { EditPipelineDialog } from './EditPipelineDialog';
 import { EditDeploymentDialog } from './CdActions';
 import { RealCdMetrics, RealCiMetrics, RealSummary } from './RealMetrics';
@@ -92,6 +94,7 @@ export const ProjectPipelines = () => {
   const { value, loading, error } = useProjectParts(project);
   const [creating, setCreating] = useState<string | undefined>(); // stack preselected: 'python' | 'repo'
   const [deploying, setDeploying] = useState(false);
+  const [importing, setImporting] = useState(false);
   const role = useSpaceRole(project);
   const canCreateCi = role.developer;   // Create pipeline / repository: developers and up
   const canCreate = role.maintainer;    // Create deployment (CD): maintainers, managers (+ entity managers, owner)
@@ -102,6 +105,7 @@ export const ProjectPipelines = () => {
 
   const createButtons = canCreateCi && (
     <Box ml="auto" display="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
+      {canCreate && <Button variant="outlined" color="primary" startIcon={<CallReceivedIcon />} onClick={() => setImporting(true)}>Import repository</Button>}
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('repo')}>Create repository</Button>
       {canCreate && <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setDeploying(true)}>Create deployment</Button>}
       <Button variant="contained" color="primary" disableElevation startIcon={<AddIcon />} onClick={() => setCreating('python')}>Create pipeline</Button>
@@ -110,6 +114,7 @@ export const ProjectPipelines = () => {
   const dialog = (
     <>
       <CreatePipelineDialog project={project} open={!!creating} initialStack={creating ?? 'python'} onClose={() => setCreating(undefined)} />
+      <ImportRepoDialog project={project} open={importing} onClose={() => setImporting(false)} />
       <CreateDeploymentDialog project={project} open={deploying} onClose={() => setDeploying(false)}
         apps={ci.filter(a => !cd.some(r => r.metadata.name === `${a.metadata.name}-gitops`))} />
     </>
@@ -124,7 +129,7 @@ export const ProjectPipelines = () => {
           <AccountTreeIcon color="disabled" style={{ fontSize: 48 }} />
           <Typography variant="h5" gutterBottom>No pipelines yet</Typography>
           <Typography variant="body2" color="textSecondary" paragraph>
-            Create a pipeline (CI: build, test, scan, image), a repository (no pipeline), then a deployment (CD).
+            Create a pipeline (CI: build, test, scan, image), a repository (no pipeline), or import an existing repository — then a deployment (CD).
           </Typography>
           {!canCreateCi && <Typography variant="body2" color="textSecondary">Viewers can't create — developers create pipelines and repositories, maintainers and managers also deployments.</Typography>}
         </Box>

@@ -6,7 +6,7 @@ import { alertApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import {
   Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
-  FormControlLabel, TextField, Typography,
+  FormControlLabel, Radio, RadioGroup, TextField, Typography,
 } from '@material-ui/core';
 import DeleteForever from '@material-ui/icons/DeleteForever';
 import { useNavigate } from 'react-router-dom';
@@ -49,9 +49,23 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const [confirmDelete, setConfirmDelete] = useState('');
   const [result, setResult] = useState<{ done: string[]; warn?: string[] } | undefined>();
 
+  // Loop v1.1+: the pipeline is one call with switches — tests and Trivy mode exist only there
+  const annotations = entity.metadata.annotations ?? {};
+  const loopVersion = annotations['everesto.live/loop'] ?? '';
+  const v11 = /^v(1\.([1-9]|\d{2,})|[2-9])/.test(loopVersion);
+  const initialTests = annotations['everesto.live/tests'] !== 'off';
+  const initialTrivy: 'enforce' | 'report' = annotations['everesto.live/trivy'] === 'report' ? 'report' : 'enforce';
+  const [tests, setTests] = useState(initialTests);
+  const [trivy, setTrivy] = useState<'enforce' | 'report'>(initialTrivy);
+
   const changes = Object.entries(SWITCHABLE)
     .filter(([id]) => checked[id] !== initial[id])
     .map(([id, key]) => ({ id, key, on: checked[id] }));
+  const extra: { key: 'tests' | 'trivy'; text: string }[] = [
+    ...(v11 && tests !== initialTests ? [{ key: 'tests' as const, text: `${tests ? 'turn on' : 'turn off'} tests + coverage` }] : []),
+    ...(v11 && trivy !== initialTrivy ? [{ key: 'trivy' as const, text: `Trivy: ${trivy === 'report' ? 'report only (findings no longer fail the build)' : 'enforce (vulnerabilities fail the build again)'}` }] : []),
+  ];
+  const hasChanges = changes.length + extra.length > 0;
   const removingSonar = changes.some(c => c.key === 'sonarqube' && !c.on);
 
   const api = useEveresto();
@@ -60,7 +74,11 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
   const save = async () => {
     setBusyAction('save');
     try {
-      const out = await call('tools', Object.fromEntries(changes.map(c => [c.key, c.on])));
+      const out = await call('tools', {
+        ...Object.fromEntries(changes.map(c => [c.key, c.on])),
+        ...(extra.some(x => x.key === 'tests') ? { tests } : {}),
+        ...(extra.some(x => x.key === 'trivy') ? { trivy } : {}),
+      });
       await catalogApi.refreshEntity(stringifyEntityRef(entity)).catch(() => {});
       setResult(out);
       alertApi.post({ message: `Pipeline of ${repo} saved — CI runs with the new settings`, severity: 'success', display: 'transient' });
@@ -118,13 +136,32 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
             </Box>
           );
         })}
+        {!repoOnly && v11 && (
+          <Box mt={1}>
+            <FormControlLabel
+              control={<Checkbox color="primary" checked={tests} disabled={!canEdit || busy} onChange={e => setTests(e.target.checked)} />}
+              label={<span><b>Tests + coverage</b>{' '}<Typography component="span" variant="caption" color="textSecondary">install, run the tests, coverage for SonarQube</Typography></span>} />
+            <Typography variant="subtitle2" style={{ marginTop: 8 }}>Trivy — always scans dependencies and the image</Typography>
+            <RadioGroup row value={trivy} onChange={e => setTrivy(e.target.value as 'enforce' | 'report')}>
+              <FormControlLabel value="enforce" disabled={!canEdit || busy} control={<Radio color="primary" />} label="Enforce — vulnerabilities fail the build" />
+              <FormControlLabel value="report" disabled={!canEdit || busy} control={<Radio color="primary" />} label="Report only" />
+            </RadioGroup>
+            {trivy === 'report' && <Typography variant="caption" style={{ color: STATUS.warning }}>Report only: findings are shown but never block — the scorecard flags this pipeline.</Typography>}
+          </Box>
+        )}
+        {!repoOnly && !v11 && (
+          <Typography variant="caption" color="textSecondary" component="div" style={{ marginTop: 8 }}>
+            Loop {loopVersion || 'v1.0'}: the Tests and Trivy (enforce / report) switches need Loop v1.1.
+          </Typography>
+        )}
         {repoOnly && <Typography variant="body2" color="textSecondary">Repository only — no CI pipeline, no tools.</Typography>}
         {!canEdit && !repoOnly && <Typography variant="body2" color="textSecondary">Only maintainers and managers of {project} can change tools.</Typography>}
-        {changes.length > 0 && (
+        {hasChanges && (
           <Box mt={2}>
             <Typography variant="body2" paragraph style={{ marginBottom: 4 }}>Saving will:</Typography>
             <Box component="ul" pl={3} m={0} style={{ lineHeight: 1.7, fontSize: 14 }}>
-              {changes.map(c => <li key={c.id}>{c.on ? 'add' : 'remove'} the {c.key} stage — one commit to <code>ci.yml</code> + <code>catalog-info.yaml</code>{c.key === 'dependabot' ? ' + .github/dependabot.yml' : ''}</li>)}
+              {changes.map(c => <li key={c.id}>{v11 && c.key !== 'dependabot' ? `switch ${c.key} ${c.on ? 'on' : 'off'}` : `${c.on ? 'add' : 'remove'} the ${c.key} stage`} — one commit to <code>ci.yml</code> + <code>catalog-info.yaml</code>{c.key === 'dependabot' ? ' + .github/dependabot.yml' : ''}</li>)}
+              {extra.map(x => <li key={x.key}>{x.text} — one commit to <code>ci.yml</code> + <code>catalog-info.yaml</code></li>)}
               {changes.some(c => c.key === 'sonarqube' && c.on) && <li>create the SonarQube project + token (secret SONAR_TOKEN)</li>}
               {removingSonar && <li style={{ color: STATUS.critical }}><b>DELETE SonarQube project {sonarKey ?? repo}</b> with all its history + secret SONAR_TOKEN</li>}
               <li>CI runs once with the new settings and deploys the result</li>
@@ -159,7 +196,7 @@ export const EditPipelineDialog = ({ entity, onClose, preset, repoOnly }: { enti
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <BusyButton color="primary" variant="contained" busy={busyAction === 'save'} busyLabel="Saving…" disabled={busy || !canEdit || changes.length === 0} onClick={save}>
+        <BusyButton color="primary" variant="contained" busy={busyAction === 'save'} busyLabel="Saving…" disabled={busy || !canEdit || !hasChanges} onClick={save}>
           Save
         </BusyButton>
       </DialogActions>

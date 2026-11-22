@@ -29,6 +29,8 @@ import { argoApp, podLogs, workloads } from './everestoK8s';
 import { expandEntityAdmins, readSpaces, syncGithubAccess } from './everestoAccess';
 import { FLOWERS, createSpace } from './everestoSpaces';
 import { SPACE_ROLES, SpaceRole, addMember, givableRoles, removeMember } from './everestoMembers';
+import { ImportInput, importRepo, importableRepos } from './everestoImport';
+import { STACKS, Stack } from './everestoLoop';
 
 const OWNER = 'Everesto-Inc';
 const TTL_MS = 120_000;
@@ -123,9 +125,10 @@ export const everestoInsightsPlugin = createBackendPlugin({
           const { repo } = req.params;
           if (!validRepo(repo)) { res.status(400).json({ error: 'invalid repo name' }); return; }
           const change: ToolChange = {};
-          for (const k of ['sonarqube', 'semgrep', 'dependabot'] as const) {
+          for (const k of ['sonarqube', 'semgrep', 'dependabot', 'tests'] as const) {
             if (typeof req.body?.[k] === 'boolean') change[k] = req.body[k];
           }
+          if (req.body?.trivy === 'enforce' || req.body?.trivy === 'report') change.trivy = req.body.trivy;
           try {
             const { refs, who } = await caller(req);
             const out = await setTools(config, repo, change, refs, who);
@@ -529,6 +532,34 @@ export const everestoInsightsPlugin = createBackendPlugin({
             res.json(out);
           } catch (e) { fail(res, e); }
         };
+        // ---- Import an existing repository into a space (Loop v1.1, via a pull request) ----
+        router.get('/spaces/:space/importable', async (req, res) => {
+          try {
+            const { refs } = await caller(req);
+            if (!allowed(refs, req.params.space, [...ROLE.CREATE])) { res.status(403).json({ error: `only maintainers/managers of ${req.params.space} can import` }); return; }
+            res.json({ repos: await importableRepos(config) });
+          } catch (e) { fail(res, e); }
+        });
+        router.post('/spaces/:space/import', async (req, res) => {
+          const { space } = req.params;
+          const b = req.body ?? {};
+          const input: ImportInput = {
+            repo: str(b.repo), stack: (STACKS.includes(b.stack) ? b.stack : 'python') as Stack,
+            tests: b.tests !== false, semgrep: b.semgrep === true, sonarqube: b.sonarqube === true,
+            dependabot: b.dependabot !== false, trivy: b.trivy === 'report' ? 'report' : 'enforce',
+          };
+          try {
+            const { refs, who } = await caller(req);
+            const out = await importRepo(config, space, input, refs, who);
+            // team access + main ruleset for the new repo right away (scoped to this space)
+            const acc = await runAccessSync(false, space).catch(e => ({ actions: [] as string[], warnings: [`access sync failed: ${e}`] }));
+            out.done.push(...acc.actions.map(a => `access: ${a}`));
+            out.warn.push(...acc.warnings);
+            logger.info(`import ${input.repo} → ${space} by ${who}: ${out.prUrl}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
         router.post('/spaces/:space/members', (req, res) => memberChange(req, res, false));
         router.post('/spaces/:space/members/remove', (req, res) => memberChange(req, res, true));
 

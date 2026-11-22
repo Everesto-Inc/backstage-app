@@ -59,3 +59,14 @@ describe('scorecard', () => {
     expect(versionLess('v1.0', 'v1.0.0')).toBe(false);
   });
 });
+
+describe('Trivy report mode', () => {
+  it('fails "No critical findings" even when the scans passed', () => {
+    const base = { kind: 'ci' as const, lastMainRun: 'success' as const, scanners: { gitleaks: 'success', trivyDeps: 'success', trivyImage: 'success' },
+      dependabot: true, dependabotPrAges: [], docs: true, deployed: false, reviewers: 2 };
+    expect(scoreChecks(base).find(c => c.id === 'vulns')?.state).toBe('pass');
+    const r = scoreChecks({ ...base, trivyReport: true }).find(c => c.id === 'vulns');
+    expect(r?.state).toBe('fail');
+    expect(r?.detail).toMatch(/REPORT mode/);
+  });
+});

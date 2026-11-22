@@ -1,3 +1,5 @@
+import { editCiSwitches } from './everestoManage';
+import { ciYml } from './everestoLoop';
 import { allowed, editCiTools, isProtected } from './everestoManage';
 
 const SHA = 'd288ef304e4f10102727004981f3855ba9fcccf1';
@@ -89,5 +91,23 @@ describe('editCiTools', () => {
     expect(r.ci).toBe(CI);
     expect(r.catalog).toBe(CATALOG);
     expect(r.done).toEqual([]);
+  });
+});
+
+describe('editCiSwitches (Loop v1.1)', () => {
+  const ci = ciYml('app', 'python', { tests: true, semgrep: false, sonarqube: false, trivy: 'enforce' }, 'ubuntu-24.04-arm');
+  const cat = 'apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: app\n  annotations:\n    everesto.live/trivy: "on"\nspec: {}\n';
+  it('flips switches and the matching annotations', () => {
+    const r = editCiSwitches(ci, cat, { sonarqube: true, trivy: 'report', tests: false }, 'app');
+    expect(r.ci).toContain('sonarqube: true');
+    expect(r.ci).toContain('trivy: report');
+    expect(r.ci).toContain('tests: false');
+    expect(r.catalog).toContain('sonarqube.org/project-key: app');
+    expect(r.catalog).toMatch(/everesto.live\/tests: "?off"?/);
+    expect(r.catalog).toMatch(/everesto.live\/trivy: "?report"?/);
+    expect(r.done).toEqual(['remove tests', 'add sonarqube', 'trivy report']);
+  });
+  it('does nothing when nothing changes', () => {
+    expect(editCiSwitches(ci, cat, { sonarqube: false, trivy: 'enforce' }, 'app').done).toEqual([]);
   });
 });

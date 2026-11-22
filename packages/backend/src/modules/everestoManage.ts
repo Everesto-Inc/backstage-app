@@ -1,7 +1,9 @@
 /**
  * everesto manage — change or delete an existing application (Loop-based pipelines).
  *
- *   POST /api/everesto/apps/:repo/tools   { sonarqube?, semgrep?, dependabot? }   owners + maintainers
+ *   POST /api/everesto/apps/:repo/tools   { sonarqube?, semgrep?, dependabot?, tests?, trivy? }   owners + maintainers
+ *     Loop v1.1 pipelines: flips the switch in the single Loop call (tests / trivy only exist there).
+ *     Loop v1.0 pipelines: adds / removes the stage (below).
  *     → one commit in the app repo: ci.yml (Loop stage added/removed), catalog-info.yaml annotation,
  *       .github/dependabot.yml; SonarQube ON = create project + SONAR_TOKEN, OFF = DELETE project + secret.
  *       Gitleaks + Trivy (Loop guard + image scan) can't be switched off.
@@ -23,6 +25,7 @@ import { infisicalDelete } from './everestoInfisical';
 import { component, setAnnotation } from './everestoYaml';
 import { spaceOf, unregisterApp } from './everestoRegistry';
 import { removeTenant } from './everestoTenants';
+import { Trivy, isLoopV11, readSwitches, setSwitch } from './everestoLoop';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -132,7 +135,30 @@ export function editCiTools(
   return { ci: ci.replaceAll(/\n{3,}/g, '\n\n'), catalog, done };
 }
 
-export type ToolChange = Partial<Record<'sonarqube' | 'semgrep' | 'dependabot', boolean>>;
+export type ToolChange = Partial<Record<'sonarqube' | 'semgrep' | 'dependabot' | 'tests', boolean>> & { trivy?: Trivy };
+
+/** Pure: Loop v1.1 — flip switches in ci.yml + the matching catalog annotations. */
+export function editCiSwitches(ciIn: string, catalogIn: string, change: ToolChange, repo: string) {
+  const has = readSwitches(ciIn);
+  let ci = ciIn;
+  let catalog = catalogIn;
+  const done: string[] = [];
+  for (const tool of ['tests', 'semgrep', 'sonarqube'] as const) {
+    const want = change[tool];
+    if (want === undefined || want === has[tool]) continue;
+    ci = setSwitch(ci, tool, want);
+    catalog = tool === 'tests'
+      ? setAnnotation(catalog, 'Component', undefined, 'everesto.live/tests', want ? undefined : 'off') // UI shows the switch
+      : setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY[tool], want ? ANNOTATION_VALUE[tool](repo) : undefined);
+    done.push(`${want ? 'add' : 'remove'} ${tool}`);
+  }
+  if (change.trivy && change.trivy !== has.trivy) {
+    ci = setSwitch(ci, 'trivy', change.trivy);
+    catalog = setAnnotation(catalog, 'Component', undefined, 'everesto.live/trivy', change.trivy === 'report' ? 'report' : 'on');
+    done.push(`trivy ${change.trivy}`);
+  }
+  return { ci, catalog, done, has };
+}
 
 export async function setTools(config: Config, repo: string, change: ToolChange, refs: string[], who: string) {
   const token = await githubToken(config, OWNER);
@@ -141,24 +167,32 @@ export async function setTools(config: Config, repo: string, change: ToolChange,
     throw err(403, `only maintainers/managers of ${project} can change its tools`);
   }
   let ci = await readFile(token, repo, '.github/workflows/ci.yml');
-  const loop = ci?.match(/Everesto-Inc\/loop\/stages\/install@([0-9a-f]{40}) # (\S+)/);
-  if (!ci || !loop) throw err(409, 'pipeline is not built on Loop — edit ci.yml by hand');
-  const [, sha, version] = loop;
+  if (!ci) throw err(409, 'no .github/workflows/ci.yml — pipeline is not built on Loop');
   const stack = ci.match(/stack: (\w+)/)?.[1] ?? 'python';
   let catalog = info;
   const files: File[] = [];
   const done: string[] = [];
-  const has = {
-    sonarqube: STEP_RE.sonarqube.test(ci),
-    semgrep: STEP_RE.semgrep.test(ci),
-    dependabot: (await readFile(token, repo, '.github/dependabot.yml')) !== undefined,
-  };
+  const dependabotOn = (await readFile(token, repo, '.github/dependabot.yml')) !== undefined;
   const after: (() => Promise<void>)[] = []; // deletions run only after the commit landed
+  let has: { sonarqube: boolean; semgrep: boolean; dependabot: boolean };
 
-  const edited = editCiTools(ci, catalog, change, has, repo, sha, version);
-  ci = edited.ci;
-  catalog = edited.catalog;
-  done.push(...edited.done);
+  if (isLoopV11(ci)) {
+    const edited = editCiSwitches(ci, catalog, change, repo);
+    ci = edited.ci;
+    catalog = edited.catalog;
+    done.push(...edited.done);
+    has = { sonarqube: edited.has.sonarqube, semgrep: edited.has.semgrep, dependabot: dependabotOn };
+  } else {
+    const loop = ci.match(/Everesto-Inc\/loop\/stages\/install@([0-9a-f]{40}) # (\S+)/);
+    if (!loop) throw err(409, 'pipeline is not built on Loop — edit ci.yml by hand');
+    if (change.tests !== undefined || change.trivy !== undefined) throw err(409, 'tests / Trivy switches need Loop v1.1 — this pipeline is on Loop v1.0');
+    const [, sha, version] = loop;
+    has = { sonarqube: STEP_RE.sonarqube.test(ci), semgrep: STEP_RE.semgrep.test(ci), dependabot: dependabotOn };
+    const edited = editCiTools(ci, catalog, change, has, repo, sha, version);
+    ci = edited.ci;
+    catalog = edited.catalog;
+    done.push(...edited.done);
+  }
 
   if (change.dependabot !== undefined && change.dependabot !== has.dependabot) {
     files.push({ path: '.github/dependabot.yml', content: change.dependabot ? dependabotYml(stack) : null });

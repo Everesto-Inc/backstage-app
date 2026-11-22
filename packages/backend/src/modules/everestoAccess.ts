@@ -72,7 +72,11 @@ export async function readSpaces(getEntities: (filter: Record<string, string>) =
       members,
       viewers: membersOf(groups.find(g => g.metadata.name === `${name}-viewers`)),
       sonarProjects: comps.filter(inSpace).map(e => e.metadata?.annotations?.['sonarqube.org/project-key']).filter(Boolean),
-      ciRepos: comps.filter(inSpace).map(slugOf).filter(Boolean),
+      // + repos registered to the space that have no catalog entry yet (imported, pull request not merged yet)
+      ciRepos: [...new Set([
+        ...comps.filter(inSpace).map(slugOf).filter(Boolean),
+        ...Object.entries(registry ?? {}).filter(([r, s]) => s === name && !r.endsWith('-gitops')).map(([r]) => r),
+      ])],
       gitopsRepos: res.filter(e => inSpace(e) && e.spec?.type === 'gitops').map(slugOf).filter(Boolean),
     };
   });
