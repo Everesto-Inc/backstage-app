@@ -106,7 +106,31 @@ a.md-nav__link--active {
 }
 `;
 
-/** Keeps the style in the docs' shadow root (re-adds it if a page change replaces the content). */
+/** Desktop layout only — below this width MkDocs turns the sidebars into a slide-out drawer. */
+const DESKTOP = '(min-width: 76.25em)';
+
+/**
+ * Backstage pins both sidebars (position: fixed) and sets their `top` from the docs' <html> element on every
+ * scroll. Embedded in an entity's Tech Docs tab that element measures 0, so at the top of the page the sidebars
+ * cover the entity header (title, owner, tabs). Run after Backstage's handler and place them at the top of the
+ * real content area instead: below the header at the top of the page, pinned to the window once scrolled past it,
+ * and never taller than the space down to the page footer.
+ */
+export function placeSidebars(root: ShadowRoot) {
+  if (!window.matchMedia(DESKTOP).matches) return;
+  const main = root.querySelector<HTMLElement>('.md-main');
+  if (!main) return;
+  const top = Math.max(main.getBoundingClientRect().top, 0);
+  const footer = root.querySelector<HTMLElement>('.md-container > .md-footer');
+  const bottom = Math.min(footer?.getBoundingClientRect().top ?? window.innerHeight, window.innerHeight);
+  root.querySelectorAll<HTMLElement>('.md-sidebar').forEach(el => {
+    el.style.top = `${top}px`;
+    el.style.height = `${Math.max(bottom - top, 0)}px`;
+  });
+}
+
+/** Keeps the style in the docs' shadow root (re-adds it if a page change replaces the content) and keeps the
+ *  sidebars below the entity header. */
 export const EverestoDocsStyle = () => {
   const root = useShadowRoot();
   useEffect(() => {
@@ -119,9 +143,22 @@ export const EverestoDocsStyle = () => {
       root.appendChild(style);
     };
     ensure();
-    const observer = new MutationObserver(ensure);
-    observer.observe(root, { childList: true });
-    return () => observer.disconnect();
+    // after Backstage's own scroll/resize handlers (registered earlier) → our placement wins
+    let frame = 0;
+    const place = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => placeSidebars(root)); };
+    const observer = new MutationObserver(() => { ensure(); place(); });
+    observer.observe(root, { childList: true, subtree: true });
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    place();
+    const settle = window.setTimeout(place, 500); // once the docs' CSS has loaded
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
   }, [root]);
   return null;
 };
