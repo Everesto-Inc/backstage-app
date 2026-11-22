@@ -25,7 +25,7 @@ import { infisicalDelete } from './everestoInfisical';
 import { component, setAnnotation } from './everestoYaml';
 import { spaceOf, unregisterApp } from './everestoRegistry';
 import { removeTenant } from './everestoTenants';
-import { Trivy, isLoopV11, readSwitches, setSwitch } from './everestoLoop';
+import { Trivy, isLoopV11, normalizeCi, readSwitches, setSwitch } from './everestoLoop';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -156,6 +156,12 @@ export function editCiSwitches(ciIn: string, catalogIn: string, change: ToolChan
     ci = setSwitch(ci, 'trivy', change.trivy);
     catalog = setAnnotation(catalog, 'Component', undefined, 'everesto.live/trivy', change.trivy === 'report' ? 'report' : 'on');
     done.push(`trivy ${change.trivy}`);
+  }
+  // a real change → also bring the file up to the current v1.1.x (explicit SONAR_TOKEN, patch release)
+  if (done.length) {
+    const n = normalizeCi(ci);
+    ci = n.ci;
+    done.push(...n.done);
   }
   return { ci, catalog, done, has };
 }

@@ -17,7 +17,7 @@
 import { err } from './everestoCommon';
 
 /** The Loop release new and imported pipelines use — bump with each Loop release. */
-export const LOOP = { sha: 'e394b20eb4ff123bbb0a9362c5de98d756b32a22', version: 'v1.1.0' } as const;
+export const LOOP = { sha: 'd2145b8c2dd821a2a173b73507c98b4254c336a7', version: 'v1.1.1' } as const;
 
 export type Stack = 'python' | 'java' | 'docker';
 export const STACKS: Stack[] = ['python', 'java', 'docker'];
@@ -31,6 +31,27 @@ export const loopRef = (ci: string) => {
   const m = ci.match(USES);
   return m ? { sha: m[1], version: m[2] } : undefined;
 };
+
+/**
+ * Pure: bring an existing v1.1.x ci.yml up to the current release — run by Edit pipeline on every save.
+ *   - `secrets: inherit` → only SONAR_TOKEN (Semgrep: yaml.github-actions.security.secrets-inherit)
+ *   - Loop v1.1.<old> → LOOP (same minor only; a new minor is an upgrade the team decides)
+ */
+export function normalizeCi(ciIn: string) {
+  let ci = ciIn;
+  const done: string[] = [];
+  if (/^ {4}secrets: inherit *$/m.test(ci)) {
+    ci = ci.replace(/^ {4}secrets: inherit *$/m, '    secrets:\n      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # only what Loop needs — never `inherit` (least privilege)');
+    done.push('pass only SONAR_TOKEN to Loop (no more `secrets: inherit`)');
+  }
+  const ref = loopRef(ci);
+  const minor = (v: string) => v.split('.').slice(0, 2).join('.');
+  if (ref && ref.sha !== LOOP.sha && minor(ref.version) === minor(LOOP.version)) {
+    ci = ci.replace(USES, `uses: Everesto-Inc/loop/.github/workflows/pipeline.yml@${LOOP.sha} # ${LOOP.version}`);
+    done.push(`Loop ${ref.version} → ${LOOP.version}`);
+  }
+  return { ci, done };
+}
 
 /** Free GitHub arm64 runners are for public repos only — private repos build arm64 with QEMU on x86. */
 export const runnerFor = (isPublic: boolean) => (isPublic ? 'ubuntu-24.04-arm' : 'ubuntu-latest');
@@ -66,7 +87,8 @@ jobs:
       semgrep: ${sw.semgrep}
       sonarqube: ${sw.sonarqube}
       trivy: ${sw.trivy}
-    secrets: inherit
+    secrets:
+      SONAR_TOKEN: \${{ secrets.SONAR_TOKEN }}   # only what Loop needs — never \`inherit\` (least privilege)
     permissions:
       contents: read
       packages: write        # push + keep the last 5 images in ghcr.io

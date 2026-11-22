@@ -71,23 +71,27 @@ export async function pipelineInsights(config: Config, repo: string, sonarKey?: 
   const token = await githubToken(config, OWNER);
   const since = new Date(Date.now() - DAYS * 864e5).toISOString();
 
-  const [runsRes, commitsRes, repoRes, prsRes, langRes] = await Promise.all([
+  // the repo first: its REAL default branch (Everesto convention is `main`, imported repos may differ)
+  const repoRes = await gh(token, 'GET', `/repos/${OWNER}/${repo}`);
+  const problem = githubProblem(repoRes.status, repo);
+  if (problem) return { exists: false, problem };
+  const branch = String(repoRes.json?.default_branch ?? 'main');
+  const [runsRes, commitsRes, prsRes, langRes] = await Promise.all([
     gh(token, 'GET', `/repos/${OWNER}/${repo}/actions/runs?per_page=30`),
-    gh(token, 'GET', `/repos/${OWNER}/${repo}/commits?sha=main&since=${since}&per_page=100`),
-    gh(token, 'GET', `/repos/${OWNER}/${repo}`),
+    gh(token, 'GET', `/repos/${OWNER}/${repo}/commits?sha=${encodeURIComponent(branch)}&since=${since}&per_page=100`),
     gh(token, 'GET', `/repos/${OWNER}/${repo}/pulls?state=open&per_page=50`),
     gh(token, 'GET', `/repos/${OWNER}/${repo}/languages`),
   ]);
-  const problem = githubProblem(repoRes.status, repo);
-  if (problem) return { exists: false, problem };
+  // GitHub answers an error OBJECT (not a list) e.g. for an empty repo or unknown branch — never crash on it
+  const list = (r: { json?: unknown }) => (Array.isArray(r.json) ? (r.json as any[]) : []);
   const langTotal = Object.values((langRes.json ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0) || 1;
   const code = repoRes.ok ? {
     visibility: repoRes.json.visibility as string,
-    defaultBranch: repoRes.json.default_branch as string,
+    defaultBranch: branch,
     pushedAt: repoRes.json.pushed_at as string,
-    openPulls: ((prsRes.json ?? []) as any[]).map(p => ({ number: p.number, title: p.title, author: p.user?.login, createdAt: p.created_at, url: p.html_url, draft: p.draft })),
+    openPulls: list(prsRes).map(p => ({ number: p.number, title: p.title, author: p.user?.login, createdAt: p.created_at, url: p.html_url, draft: p.draft })),
     languages: Object.entries((langRes.json ?? {}) as Record<string, number>).map(([name, bytes]) => ({ name, pct: Math.round((bytes / langTotal) * 100) })),
-    lastCommits: ((commitsRes.json ?? []) as any[]).slice(0, 8).map(c => ({
+    lastCommits: list(commitsRes).slice(0, 8).map(c => ({
       sha: String(c.sha).slice(0, 7), message: String(c.commit?.message ?? '').split('\n')[0], author: c.author?.login ?? c.commit?.author?.name, at: c.commit?.committer?.date, url: c.html_url,
     })),
   } : undefined;
@@ -112,7 +116,7 @@ export async function pipelineInsights(config: Config, repo: string, sonarKey?: 
 
   // scanner results = step conclusions of the latest completed run on main
   const lastMain = ((runsRes.json?.workflow_runs ?? []) as any[]).find(
-    r => r.name === 'CI' && r.head_branch === 'main' && r.status === 'completed',
+    r => r.name === 'CI' && r.head_branch === branch && r.status === 'completed',
   );
   const scanners: Record<string, string | null> = {};
   let failedStep: string | undefined;
@@ -128,7 +132,7 @@ export async function pipelineInsights(config: Config, repo: string, sonarKey?: 
   }
 
   const perDay: Record<string, number> = Object.fromEntries(lastDays().map(d => [d, 0]));
-  for (const c of (commitsRes.json ?? []) as any[]) {
+  for (const c of list(commitsRes)) {
     const d = dayKey(new Date(c.commit?.committer?.date ?? c.commit?.author?.date));
     if (d in perDay) perDay[d] += 1;
   }

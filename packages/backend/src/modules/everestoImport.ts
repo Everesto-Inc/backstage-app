@@ -145,6 +145,11 @@ export async function importRepo(config: Config, space: string, input: ImportInp
   if (registry[repo]) throw err(409, `${repo} already belongs to space ${registry[repo]}`);
   if (!importable(info.json, registry)) throw err(409, `${repo} cannot be imported (archived, fork, platform or gitops repo)`);
   const base = info.json.default_branch as string;
+  // Everesto convention: `main`. Backstage reads catalog-info / builds from main, and Loop's ci.yml runs on push to main.
+  if (base !== 'main') {
+    throw err(409, `${repo}'s default branch is "${base}" — rename it to "main" first (GitHub → Settings → General → Default branch → ✏️; `
+      + 'for a case-only change like Main → main, rename twice: Main → main-tmp → main). Nothing was changed.');
+  }
   const done: string[] = [];
   const warn: string[] = [];
 

@@ -1,5 +1,6 @@
 import { parse } from 'yaml';
 import { addTarget, catalogInfo, locationYaml, prBody } from './everestoImport';
+import { LOOP } from './everestoLoop';
 
 const IN = { repo: 'maas-backend', stack: 'python' as const, tests: false, semgrep: false, sonarqube: true, dependabot: true, trivy: 'enforce' as const };
 
@@ -10,7 +11,7 @@ describe('import: catalog-info.yaml', () => {
     expect(y.metadata.annotations).toMatchObject({
       'github.com/project-slug': 'Everesto-Inc/maas-backend',
       'everesto.live/image': 'ghcr.io/everesto-inc/maas-backend',
-      'everesto.live/loop': 'v1.1.0',
+      'everesto.live/loop': LOOP.version,
       'everesto.live/trivy': 'on',
       'sonarqube.org/project-key': 'maas-backend',
       'everesto.live/dependabot': 'on',
