@@ -7,7 +7,7 @@ import AddIcon from '@material-ui/icons/Add';
 import BusinessIcon from '@material-ui/icons/Business';
 import FolderIcon from '@material-ui/icons/FolderOpen';
 import ArrowForward from '@material-ui/icons/ArrowForward';
-import { useProjects } from './data';
+import { classifyParts, useProjects } from './data';
 import { CreateSpaceDialog } from './CreateSpaceDialog';
 import { identityApiRef, useApi } from '@backstage/core-plugin-api';
 import useAsync from 'react-use/esm/useAsync';
@@ -83,9 +83,7 @@ const useStyles = makeStyles(theme => {
 
 const ProjectNode = ({ system, parts }: { system: Entity; parts: Entity[] }) => {
   const classes = useStyles();
-  const ci = parts.filter(p => p.kind === 'Component' && p.spec?.type !== 'repository');
-  const cd = parts.filter(p => p.kind === 'Resource');
-  const repos = parts.filter(p => p.kind === 'Component' && p.spec?.type === 'repository');
+  const { ci, cd, repoOnly: repos } = classifyParts(parts);
   const used = [...CI_TOOLS, ...CD_TOOLS].filter(t => parts.some(p => toolState(p, t).kind !== 'missing'));
   return (
     <div className={classes.card}>

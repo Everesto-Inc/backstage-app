@@ -41,6 +41,21 @@ export const useProjects = (domain: string, reload = 0) => {
   }, [domain, reload]);
 };
 
+/** One rule for every view (space card, Pipelines tab): docs are never CI, CD = gitops/deployment Resources. */
+export const classifyParts = (items: Entity[]) => {
+  const type = (e: Entity) => String(e.spec?.type ?? '');
+  return {
+    ci: items.filter(e => e.kind === 'Component' && !['repository', 'documentation'].includes(type(e))),
+    repoOnly: items.filter(e => e.kind === 'Component' && type(e) === 'repository'),
+    docs: items.filter(e => e.kind === 'Component' && type(e) === 'documentation'),
+    cd: items.filter(e => e.kind === 'Resource' && ['gitops', 'deployment'].includes(type(e))),
+  };
+};
+
+/** The app a CD pipeline deploys: annotation everesto.live/deploys, else the <app>-gitops naming convention. */
+export const deployedApp = (cd: Entity) =>
+  cd.metadata.annotations?.['everesto.live/deploys'] ?? cd.metadata.name.replace(/-gitops$/, '');
+
 export const useProjectParts = (system: string) => {
   const catalogApi = useApi(catalogApiRef);
   return useAsync(async () => {
@@ -51,13 +66,7 @@ export const useProjectParts = (system: string) => {
         { kind: 'api', 'spec.system': system },
       ],
     });
-    const items = res.items;
-    return {
-      ci: items.filter(e => e.kind === 'Component' && e.spec?.type !== 'repository'),
-      repoOnly: items.filter(e => e.kind === 'Component' && e.spec?.type === 'repository'),
-      cd: items.filter(e => e.kind === 'Resource' && ['gitops', 'deployment'].includes(String(e.spec?.type))),
-      apis: items.filter(e => e.kind === 'API'),
-    };
+    return { ...classifyParts(res.items), apis: res.items.filter(e => e.kind === 'API') };
   }, [system]);
 };
 

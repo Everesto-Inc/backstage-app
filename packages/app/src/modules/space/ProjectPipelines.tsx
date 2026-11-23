@@ -6,7 +6,7 @@ import { Box, Button, Typography, makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
 import EditIcon from '@material-ui/icons/Edit';
 import AccountTreeIcon from '@material-ui/icons/AccountTree';
-import { useSpaceRole, useProjectParts } from './data';
+import { deployedApp, useSpaceRole, useProjectParts } from './data';
 import { PipelineFlow } from './PipelineFlow';
 import { CreatePipelineDialog } from './CreatePipelineDialog';
 import { CreateDeploymentDialog } from './CreateDeploymentDialog';
@@ -43,7 +43,7 @@ const useStyles = makeStyles(theme => ({
   empty: { border: `1px dashed ${theme.palette.divider}`, borderRadius: 16, padding: theme.spacing(6), textAlign: 'center' },
 }));
 
-const short = (e: Entity, project: string) => e.metadata.name.replace(new RegExp(`^${project}-`), '');
+const isProtected = (e: Entity) => e.metadata.annotations?.['everesto.live/protected'] === 'true';
 
 const PipelineCard = ({ e, project, tools, kind }: { e: Entity; project: string; tools: Tool[]; kind: 'ci' | 'cd' | 'repo' }) => {
   const classes = useStyles();
@@ -52,19 +52,28 @@ const PipelineCard = ({ e, project, tools, kind }: { e: Entity; project: string;
     <div className={classes.card}>
       <div className={classes.head}>
         <Box minWidth={0}>
-          <EntityRefLink entityRef={e} className={classes.name}>{short(e, project)}</EntityRefLink>
+          <EntityRefLink entityRef={e} className={classes.name}>{e.metadata.name}</EntityRefLink>
           <Typography variant="body2" color="textSecondary">{e.metadata.description ?? e.metadata.name}</Typography>
         </Box>
         <PipelineFlow entity={e} tools={tools} size={48} labels />
-        <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
+        {!(kind === 'cd' && isProtected(e)) && (
+          <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)}>Edit</Button>
+        )}
       </div>
 
       {kind === 'ci' && <RealCiMetrics entity={e} />}
-      {kind === 'cd' && <RealCdMetrics entity={e} />}
+      {kind === 'cd' && !isProtected(e) && <RealCdMetrics entity={e} />}
+      {kind === 'cd' && isProtected(e) && (
+        <Box px={3} pb={2}>
+          <Typography variant="body2" color="textSecondary">
+            Platform deployment — deploys <b>{deployedApp(e)}</b>, managed by Argo CD (auto-sync on every image bump).
+          </Typography>
+        </Box>
+      )}
 
       {editing && kind !== 'cd' && <EditPipelineDialog entity={e} repoOnly={kind === 'repo'} onClose={() => setEditing(false)} />}
       {editing && kind === 'cd' && (
-        <EditDeploymentDialog repo={e.metadata.name.replace(/-gitops$/, '')} project={project} hasProd={false} onClose={() => setEditing(false)} />
+        <EditDeploymentDialog repo={deployedApp(e)} project={project} hasProd={false} onClose={() => setEditing(false)} />
       )}
     </div>
   );
@@ -116,7 +125,7 @@ export const ProjectPipelines = () => {
       <CreatePipelineDialog project={project} open={!!creating} initialStack={creating ?? 'python'} onClose={() => setCreating(undefined)} />
       <ImportRepoDialog project={project} open={importing} onClose={() => setImporting(false)} />
       <CreateDeploymentDialog project={project} open={deploying} onClose={() => setDeploying(false)}
-        apps={ci.filter(a => !cd.some(r => r.metadata.name === `${a.metadata.name}-gitops`))} />
+        apps={ci.filter(a => !cd.some(r => deployedApp(r) === a.metadata.name))} />
     </>
   );
 
