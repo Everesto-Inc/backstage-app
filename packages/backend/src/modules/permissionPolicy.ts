@@ -30,6 +30,7 @@ import {
 import {
   catalogEntityCreatePermission,
   catalogEntityDeletePermission,
+  catalogEntityReadPermission,
   catalogLocationCreatePermission,
   catalogLocationDeletePermission,
 } from '@backstage/plugin-catalog-common/alpha';
@@ -38,9 +39,17 @@ import {
   taskCreatePermission,
   templateManagementPermission,
 } from '@backstage/plugin-scaffolder-common/alpha';
+import {
+  catalogConditions,
+  createCatalogConditionalDecision,
+} from '@backstage/plugin-catalog-backend/alpha';
 
 // The group that is allowed to perform privileged actions.
 const PRIVILEGED_GROUP = 'group:default/platform-team';
+
+// Entities carrying this label (e.g. the platform architecture docs: private IPs, access paths)
+// are invisible — catalog, search and their TechDocs — to everyone outside platform-team.
+export const PLATFORM_ONLY_LABEL = 'everesto.live/platform-only';
 
 // Permissions that are denied unless the caller is in the privileged group.
 // Running templates (Create pipeline): members of any DevOps space (developer and up) + platform-team.
@@ -74,6 +83,12 @@ export class PlatformTeamPermissionPolicy implements PermissionPolicy {
     );
 
     const refs = user?.info.ownershipEntityRefs ?? [];
+    if (isPermission(request.permission, catalogEntityReadPermission)) {
+      if (refs.includes(PRIVILEGED_GROUP)) return { result: AuthorizeResult.ALLOW };
+      return createCatalogConditionalDecision(request.permission, {
+        not: catalogConditions.hasLabel({ label: PLATFORM_ONLY_LABEL }),
+      });
+    }
     if (TEMPLATE_RUN_PERMISSIONS.some(p => isPermission(request.permission, p))) {
       const ok = refs.includes(PRIVILEGED_GROUP) || refs.some(r => SPACE_MEMBER.test(r));
       return { result: ok ? AuthorizeResult.ALLOW : AuthorizeResult.DENY };

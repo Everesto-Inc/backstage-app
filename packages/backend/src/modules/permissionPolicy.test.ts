@@ -10,8 +10,13 @@ const decide = async (permission: any, refs: string[]) => (await policy.handle({
 
 
 describe('PlatformTeamPermissionPolicy', () => {
-  it('lets every signed-in user read the catalog', async () => {
-    expect(await decide(catalogEntityReadPermission, [])).toBe(AuthorizeResult.ALLOW);
+  it('lets platform-team read everything; others read all but platform-only entities', async () => {
+    expect(await decide(catalogEntityReadPermission, ['group:default/platform-team'])).toBe(AuthorizeResult.ALLOW);
+    const d: any = await policy.handle({ permission: catalogEntityReadPermission } as any, user(['group:default/orchid-managers']));
+    expect(d.result).toBe(AuthorizeResult.CONDITIONAL);
+    expect(d.conditions).toEqual({
+      not: { rule: 'HAS_LABEL', resourceType: 'catalog-entity', params: { label: 'everesto.live/platform-only' } },
+    });
   });
 
   it('denies catalog writes and location registration (SSRF) to non-platform users', async () => {
