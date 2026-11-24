@@ -220,9 +220,16 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 
    | Node | Pool | Runs |
    |---|---|---|
-   | `dev-k3s-control-plane` (2 vCPU / 10 GB) | platform | K3s API, AWX, ArgoCD, ESO, platform apps — **never tenant apps** |
-   | `dev-k3s-argocd` (1 vCPU / 4 GB) | `everesto.live/pool=tenants` | Backstage + all apps created from Backstage |
+   | `dev-k3s-control-plane` (2 vCPU / 10 GB) | platform | K3s API, AWX, ArgoCD, ESO, platform apps + **big tenant apps** (rule below) |
+   | `dev-k3s-argocd` (1 vCPU / 4 GB) | `everesto.live/pool=tenants` | Backstage + apps created from Backstage — **the default** |
    | `dev-k3s-tools` (if joined to K3s later) | `everesto.live/pool=tenants` | extra tenant capacity |
+
+   **Placement rule (decided 2026-11-25):** a tenant app goes to the **argocd worker** first. An app too big for
+   it — namespace budget above the worker's **1536 Mi** max (the 4 GB node also holds the OS and Backstage) — goes
+   to the **control-plane**, with its own capped quota (max **3 GiB**) and `nodeSelector:
+   {node-role.kubernetes.io/control-plane: "true"}`. The cap protects K3s / AWX / ArgoCD: an app over it is
+   OOM-killed, not the platform. Only platform-team decides it (tenant file in gitops-backstage).
+   Today: **agency** (`dev-agency`, 6 services, 3 GiB; measured idle ≈ 0.95 GB on 2026-11-25).
 
    Node label set by ansible `01_v2_join_k3s_workers.yml`; templates write
    `nodeSelector: {everesto.live/pool: tenants}` into every generated manifest.
@@ -278,8 +285,13 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - **ArgoCD**: developers/maintainers sync dev only, managers also prod; owner = admin.
 - **Who gives roles**: owner every role (several at once) · managers maintainer/developer/viewer · maintainers developer/viewer.
 - **Tenant guardrails** (platform tenant file, tenants can't change them): namespace with Pod Security baseline,
-  ResourceQuota = app × (replicas + 1) + 128 Mi (max 1536 Mi), LimitRange, NetworkPolicy (no traffic from other
+  ResourceQuota = app × (replicas + 1) + 128 Mi (max 1536 Mi on the argocd worker; bigger apps → control-plane,
+  max 3 GiB, see §9.6), LimitRange, NetworkPolicy (no traffic from other
   tenants), no NodePort/LoadBalancer/volumes. Tenant ArgoCD projects may only create app kinds.
+- **Platform project** `gitops-backstage/platform/appproject-platform.yaml` is NOT synced by ArgoCD: after changing it,
+  `sudo kubectl apply -f` it on the control-plane — else `platform-tenants` fails with "synchronization tasks are not valid".
+- **Hand-edited deployments** (until "Import deployment"): `agency-backend` (6 services, control-plane, 3 GiB). Don't use
+  Backstage Deploy / Promote / Delete on it — they assume one image and would reset the tenant file to 1536 Mi.
 - **Access sync** every 30 min: GitHub teams/rulesets/CODEOWNERS, ArgoCD roles, SonarQube groups + private projects.
 
 ## Code map (packages/backend/src/modules)
