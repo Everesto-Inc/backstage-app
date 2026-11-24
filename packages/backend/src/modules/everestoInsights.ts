@@ -402,7 +402,7 @@ export const everestoInsightsPlugin = createBackendPlugin({
               ]);
               const steps = explainStatus({
                 env: envName, repo, namespace, clusterReadable: argo !== undefined, gitConfigured: !!git, argo, ...eso,
-                pods: wl?.pods, replicas: wl?.deployments?.[0]?.replicas, events: wl?.events?.map(e => `${e.reason}: ${e.message}`), url,
+                pods: wl?.pods, replicas: wl?.deployments?.reduce((n, d) => n + d.replicas, 0), events: wl?.events?.map(e => `${e.reason}: ${e.message}`), url,
               });
               return { env: envName, namespace, steps };
             }));
@@ -417,7 +417,9 @@ export const everestoInsightsPlugin = createBackendPlugin({
           if (!validRepo(repo) || !logEnv || !pod) { res.status(400).json({ error: 'invalid repo, env or pod' }); return; }
           try {
             const project = await member(req, repo);
-            const text = await podLogs(`${project}-${logEnv}`, repo, pod, Number(req.query.tail ?? 200), req.query.previous === '1');
+            // namespace = <env>-<nsKey> (deployment.json), not <project>-<env> (the old naming)
+            const nsKey = await nsKeyOf(await githubToken(config, OWNER), repo, project);
+            const text = await podLogs(`${logEnv}-${nsKey}`, repo, pod, Number(req.query.tail ?? 200), req.query.previous === '1');
             if (text === undefined) { res.status(404).json({ error: 'pod not found or not readable' }); return; }
             res.json({ pod, env: logEnv, log: text });
           } catch (e) { fail(res, e); }
