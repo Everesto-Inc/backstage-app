@@ -25,17 +25,41 @@ import { ToolLogo } from '../tools/ToolLogo';
  * Supported today: Python, Java, React. Others are marked "coming soon".
  */
 
-type Stack = { id: string; name: string; hint: string; logo?: string; build: string; soon?: boolean };
+type Stack = { id: string; name: string; hint: string; logo?: string; build: string; soon?: boolean; details?: string[] };
 // CI stacks — each maps to a skeleton + CI workflow in the template
 export const STACKS: Stack[] = [
-  { id: 'java', name: 'Java', hint: 'Spring Boot · Maven/Gradle', logo: 'openjdk', build: 'mvn verify' },
-  { id: 'python', name: 'Python', hint: 'FastAPI · pytest', logo: 'python', build: 'pytest' },
+  { id: 'java', name: 'Java', hint: 'Spring Boot · Maven', logo: 'openjdk', build: 'mvn verify', details: [
+    'Java 21 · Spring Boot 4.1 (Web) · Maven',
+    'Starter service: GET / and GET /health on port 8080',
+    'Tests: JUnit (spring-boot-starter-test) + JaCoCo coverage for SonarQube',
+    'Image: eclipse-temurin 21 JRE, linux/arm64',
+    'Dependabot: Maven, Docker base image (patches only), GitHub Actions',
+  ] },
+  { id: 'python', name: 'Python', hint: 'FastAPI · pytest', logo: 'python', build: 'pytest', details: [
+    'Python 3.12 · FastAPI + Uvicorn',
+    'Starter service: GET / and GET /health on port 8080',
+    'Tests: pytest + pytest-cov + httpx, coverage for SonarQube',
+    'Image: python:3.12-slim, linux/arm64',
+    'Dependabot: pip, Docker base image (patches only), GitHub Actions',
+  ] },
   { soon: true, id: 'go', name: 'Go', hint: 'net/http · go test', logo: 'go', build: 'go test ./...' },
   { soon: true, id: 'rust', name: 'Rust', hint: 'axum · cargo test', logo: 'rust', build: 'cargo test' },
   { soon: true, id: 'node', name: 'Node.js', hint: 'TypeScript · Express', logo: 'nodedotjs', build: 'npm test' },
-  { id: 'react', name: 'React', hint: 'web app · Vite · TypeScript', logo: 'react', build: 'npm test + build' },
+  { id: 'react', name: 'React', hint: 'web app · Vite · TypeScript', logo: 'react', build: 'npm test + build', details: [
+    'React 19 · TypeScript 5 · Vite — a single-page web app (no server rendering)',
+    'Tailwind CSS 4 + the board design system: lists, cards, labels; light + dark; phone, tablet and desktop',
+    'TanStack Query (data) · react-router (one lazy chunk per screen) · openapi-fetch (typed client from a backend\'s OpenAPI spec)',
+    'Starter: one demo board screen + a card that checks whether API_URL answers — a starting point, not an app',
+    'Tests: Vitest + Testing Library with coverage for SonarQube; CI fails if the first page grows past 130 KB',
+    'Served by nginx-unprivileged 1.27 (static files, ≈ 10 MiB RAM) on port 8080 · /healthz · security headers (CSP)',
+    'API_URL is set per environment at runtime (same image everywhere) — a web app holds no secrets',
+    'Dependabot: npm, Docker base image (patches only), GitHub Actions',
+  ] },
   { soon: true, id: 'dotnet', name: '.NET', hint: 'ASP.NET Core', logo: 'dotnet', build: 'dotnet test' },
-  { id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage, docs', build: '' },
+  { id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage, docs', build: '', details: [
+    'README + .gitignore only — no pipeline, no image, nothing to deploy',
+    'For scripts, configuration, storage or docs; changes to main go through pull requests',
+  ] },
 ];
 
 type Cd = { id: string; name: string; hint: string; logo?: string; soon?: boolean };
@@ -56,6 +80,7 @@ const useStyles = makeStyles(theme => ({
   selected: { borderColor: theme.palette.primary.main, boxShadow: `0 0 0 1px ${theme.palette.primary.main}` },
   label: { fontWeight: 650, fontSize: 14 },
   hint: { fontSize: 12, color: theme.palette.text.secondary },
+  details: { marginTop: theme.spacing(1.5), padding: theme.spacing(1.5, 2), borderRadius: 12, border: `1px solid ${theme.palette.divider}`, background: theme.palette.action.hover, fontSize: 13, lineHeight: 1.7 },
   step: { fontSize: 12, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: theme.palette.text.secondary, margin: theme.spacing(3, 0, 1) },
 }));
 
@@ -117,12 +142,22 @@ export const CreatePipelineDialog = ({ project, open, onClose, initialStack = 'p
         <div className={classes.step}>2 · Application (CI)</div>
         <div className={classes.grid}>
           {STACKS.map(x => (
-            <button key={x.id} type="button" disabled={x.soon} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); }}>
+            <button key={x.id} type="button" disabled={x.soon} title={x.details?.join('\n')} style={x.soon ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} className={`${classes.option} ${stack === x.id ? classes.selected : ''}`} onClick={() => { setStack(x.id); }}>
               <Mark slug={x.logo} fallback={<FolderIcon style={{ fontSize: 18 }} />} />
               <span><div className={classes.label}>{x.name}</div><div className={classes.hint}>{x.soon ? 'coming soon' : x.hint}</div></span>
             </button>
           ))}
         </div>
+
+        {s.details && (
+          <Box className={classes.details} aria-live="polite">
+            <div className={classes.label}>{s.name} — what you get</div>
+            <Box component="ul" m={0} mt={0.5} pl={2.5}>
+              {s.details.map(d => <li key={d}>{d}</li>)}
+              {!repoOnly && <li>Every stack: Loop CI (tests → Gitleaks → Semgrep and SonarQube if switched on below → image build + Trivy → ghcr.io, linux/arm64), catalog entry, Tech Docs; deployment later with “Create deployment”</li>}
+            </Box>
+          </Box>
+        )}
 
         {!repoOnly && (
           <>
