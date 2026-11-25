@@ -17,7 +17,14 @@ type K8s = {
   deployments?: { name: string; replicas: number; ready: number; image?: string }[];
   pods?: { name: string; phase?: string; ready: boolean; restarts: number; lastTermination?: string; ageSec?: number; node?: string }[];
   events?: { reason: string; message: string; object: string; count: number; ageSec?: number }[];
+  cronJobs?: CronJob[];
+  oneOffJobs?: Run[];
 } | undefined;
+type Run = { name: string; status: 'running' | 'succeeded' | 'failed'; startAgeSec?: number; durationSec?: number; pod?: string };
+type CronJob = {
+  name: string; schedule: string; scheduleText: string; suspended: boolean; active: number;
+  lastScheduleAgeSec?: number; lastSuccessAgeSec?: number; nextRunInSec?: number; runs: Run[];
+};
 type Data = { clusterAccess: boolean; envs: { env: 'dev' | 'prod'; argo: Argo; k8s: K8s }[] };
 
 const dur = (s?: number) => {
@@ -30,8 +37,94 @@ const color = (good: boolean, bad: boolean) => {
   if (good) return STATUS.good;
   return bad ? STATUS.critical : STATUS.warning;
 };
+const secs = (s?: number) => {
+  if (s === undefined) return '—';
+  return s < 90 ? `${s} s` : dur(s);
+};
+const RUN_COLOR = { failed: STATUS.critical, running: STATUS.warning, succeeded: STATUS.good };
+const runColor = (r?: Run) => (r ? RUN_COLOR[r.status] : 'rgba(128,128,128,0.4)');
+const nextRun = (c: CronJob) => (c.suspended || c.nextRunInSec === undefined ? '—' : `in ${secs(c.nextRunInSec)}`);
+const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, opacity: 0.7, fontWeight: 600 } as const;
+const td = { padding: '8px', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14, verticalAlign: 'middle' } as const;
 const box = { p: 2, borderRadius: 12, style: { border: '1px solid rgba(128,128,128,0.25)' } } as const;
 const row = { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderTop: '1px solid rgba(128,128,128,0.15)', fontSize: 14 } as const;
+
+/** CronJobs of the app (+ one-off jobs like migrations): when they run, how the last runs went, their logs. */
+const ScheduledJobs = ({ env, k8s, openLogs }: { env: string; k8s: K8s; openLogs: (env: string, pod: string) => void }) => {
+  const crons = k8s?.cronJobs ?? [];
+  const oneOff = k8s?.oneOffJobs ?? [];
+  if (!crons.length && !oneOff.length) return null;
+  const running = crons.reduce((n, c) => n + c.active, 0);
+  const failing = crons.filter(c => c.runs[0]?.status === 'failed');
+  const Dot = ({ r, onClick }: { r?: Run; onClick?: () => void }) => {
+    const label = r ? `${r.name} · ${r.status} · ${secs(r.durationSec)} · ${dur(r.startAgeSec)} ago` : 'no run yet';
+    const style = { display: 'inline-block', width: 12, height: 12, borderRadius: 6, margin: '0 2px', padding: 0, border: 0, background: runColor(r) };
+    return onClick
+      ? <button type="button" title={`${label} — logs`} aria-label={`${label}, open logs`} onClick={onClick} style={{ ...style, cursor: 'pointer' }} />
+      : <span title={label} style={style} />;
+  };
+  return (
+    <>
+      <Box display="flex" alignItems="baseline" style={{ marginTop: 16, gap: 12 }}>
+        <Typography variant="subtitle2">Scheduled jobs</Typography>
+        <Typography variant="caption" color="textSecondary">
+          {crons.length} CronJob{crons.length === 1 ? '' : 's'} · {running} running now ·{' '}
+          <span style={{ color: failing.length ? STATUS.critical : undefined }}>{failing.length} failed last time</span> · times in UTC
+        </Typography>
+      </Box>
+      {crons.length > 0 && (
+        <Box style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+            <thead><tr>
+              <th style={th}>Job</th><th style={th}>Runs</th><th style={th}>Last run</th><th style={th}>Next run</th>
+              <th style={th}>Last 8 (newest left · click = logs)</th><th style={th} />
+            </tr></thead>
+            <tbody>
+              {crons.map(c => {
+                const last = c.runs[0];
+                return (
+                  <tr key={c.name}>
+                    <td style={td}><code>{c.name}</code>{c.suspended && <span style={{ marginLeft: 6, color: STATUS.warning, fontSize: 12 }}>paused</span>}</td>
+                    <td style={td} title={c.schedule}>{c.scheduleText}</td>
+                    <td style={td}>
+                      {last ? (
+                        <span><Dot r={last} /> <b style={{ color: runColor(last) }}>{last.status}</b>{' '}
+                          <Typography variant="caption" color="textSecondary">{dur(last.startAgeSec)} ago · took {secs(last.durationSec)}</Typography></span>
+                      ) : <Typography variant="caption" color="textSecondary">never</Typography>}
+                    </td>
+                    <td style={td}>{nextRun(c)}</td>
+                    <td style={td}>
+                      {c.runs.map(r => <Dot key={r.name} r={r} onClick={r.pod ? () => openLogs(env, r.pod!) : undefined} />)}
+                      {!c.runs.length && <Typography variant="caption" color="textSecondary">no runs kept</Typography>}
+                    </td>
+                    <td style={td}>{last?.pod && <Button size="small" variant="outlined" onClick={() => openLogs(env, last.pod!)}>Logs</Button>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Box>
+      )}
+      {oneOff.length > 0 && (
+        <>
+          <Typography variant="caption" color="textSecondary" component="div" style={{ marginTop: 10 }}>One-off jobs (e.g. database migrations on Sync)</Typography>
+          {oneOff.map(j => (
+            <div key={j.name} style={row}>
+              <Dot r={j} />
+              <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</code>
+              <span style={{ fontWeight: 600, color: runColor(j) }}>{j.status}</span>
+              <Typography variant="caption" color="textSecondary">{dur(j.startAgeSec)} ago · took {secs(j.durationSec)}</Typography>
+              {j.pod && <Button size="small" variant="outlined" onClick={() => openLogs(env, j.pod!)}>Logs</Button>}
+            </div>
+          ))}
+        </>
+      )}
+      <Typography variant="caption" color="textSecondary" component="div" style={{ marginTop: 4 }}>
+        Kubernetes keeps the last runs only (successful 1, failed 2 per job by default) — older logs are in Grafana → Loki.
+      </Typography>
+    </>
+  );
+};
 
 export const ClusterTab = ({ entity }: { entity: Entity }) => {
   const repo = insightsTarget(entity).repo;
@@ -112,6 +205,8 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
                       );
                     })}
 
+                    <ScheduledJobs env={env} k8s={k8s} openLogs={openLogs} />
+
                     {(k8s?.events ?? []).length > 0 && (
                       <>
                         <Typography variant="subtitle2" style={{ marginTop: 16, color: STATUS.warning }}>Warnings</Typography>
@@ -151,3 +246,4 @@ export const ClusterTab = ({ entity }: { entity: Entity }) => {
     </Box>
   );
 };
+

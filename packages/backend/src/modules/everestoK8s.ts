@@ -128,24 +128,137 @@ export function mergeByName(...lists: ({ items?: any[] } | undefined)[]): { item
   return { items: [...seen.values()] };
 }
 
+// ------------------------------------------------------------------ scheduled jobs (CronJobs) + one-off Jobs
+/** Pure: does a 5-field cron field match this value? (*, n, a-b, a,b, * /n, a-b/n) */
+function cronFieldMatches(field: string, value: number): boolean {
+  return field.split(',').some(part => {
+    const [range, stepStr] = part.split('/');
+    const step = stepStr ? Number(stepStr) : 1;
+    let lo = 0;
+    let hi = 99;
+    if (range.includes('-')) [lo, hi] = range.split('-').map(Number);
+    else if (range !== '*') {
+      lo = Number(range);
+      hi = stepStr ? 99 : lo;
+    }
+    return value >= lo && value <= hi && (value - lo) % step === 0;
+  });
+}
+
+/** Pure: next time (UTC) a standard 5-field cron schedule fires after `from` — or undefined (unusual syntax). */
+export function nextCronRun(schedule: string, from: Date): Date | undefined {
+  const f = schedule.trim().split(/\s+/);
+  if (f.length !== 5 || f.some(x => /[A-Za-z?LW#]/.test(x))) return undefined;
+  const t = new Date(from.getTime());
+  t.setUTCSeconds(0, 0);
+  t.setUTCMinutes(t.getUTCMinutes() + 1);
+  for (let i = 0; i < 60 * 24 * 32; i++) {          // look ahead one month, minute by minute
+    const domStar = f[2] === '*';
+    const dowStar = f[4] === '*';
+    const dom = cronFieldMatches(f[2], t.getUTCDate());
+    const dow = cronFieldMatches(f[4], t.getUTCDay()) || (t.getUTCDay() === 0 && cronFieldMatches(f[4], 7));
+    let dayOk = dom || dow;                          // both restricted: either matches (cron rule)
+    if (domStar && dowStar) dayOk = true;
+    else if (domStar) dayOk = dow;
+    else if (dowStar) dayOk = dom;
+    if (cronFieldMatches(f[0], t.getUTCMinutes()) && cronFieldMatches(f[1], t.getUTCHours())
+        && cronFieldMatches(f[3], t.getUTCMonth() + 1) && dayOk) return t;
+    t.setUTCMinutes(t.getUTCMinutes() + 1);
+  }
+  return undefined;
+}
+
+/** Pure: "*\/2 * * * *" → "every 2 min" · "30 3 * * *" → "daily 03:30 UTC" (else the expression itself). */
+export function describeCron(schedule: string): string {
+  const [m, h, dom, mon, dow] = schedule.trim().split(/\s+/);
+  const pad = (x: string) => x.padStart(2, '0');
+  const days = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+  if (dom !== '*' || mon !== '*') return schedule;
+  if (/^\*\/\d+$/.test(m) && h === '*' && dow === '*') return `every ${m.slice(2)} min`;
+  if (/^\d+$/.test(m) && h === '*' && dow === '*') return `hourly at :${pad(m)}`;
+  if (/^\d+$/.test(m) && /^\d+$/.test(h) && dow === '*') return `daily ${pad(h)}:${pad(m)} UTC`;
+  if (/^\d+$/.test(m) && /^\d+$/.test(h) && /^\d$/.test(dow)) return `${days[Number(dow) % 7]} ${pad(h)}:${pad(m)} UTC`;
+  return schedule;
+}
+
+type Run = { name: string; status: 'running' | 'succeeded' | 'failed'; startAgeSec?: number; durationSec?: number; pod?: string };
+
+/** Pure: a Job → its run (status, when, how long, the pod with its logs). */
+export function jobRun(job: any, podByJob: Map<string, string>): Run {
+  const st = job.status ?? {};
+  const failed = (st.conditions ?? []).some((c: any) => c.type === 'Failed' && c.status === 'True');
+  let status: Run['status'] = 'running';
+  if (failed) status = 'failed';
+  else if (st.succeeded) status = 'succeeded';
+  const start = st.startTime ? Date.parse(st.startTime) : undefined;
+  let end: number | undefined = st.completionTime ? Date.parse(st.completionTime) : undefined;
+  if (end === undefined && failed) {
+    end = Date.parse((st.conditions ?? []).find((c: any) => c.type === 'Failed')?.lastTransitionTime ?? '') || undefined;
+  }
+  return {
+    name: job.metadata.name, status,
+    startAgeSec: age(st.startTime),
+    durationSec: start ? Math.round(((end ?? Date.now()) - start) / 1000) : undefined,
+    pod: podByJob.get(job.metadata.name),
+  };
+}
+
+/** Pure: CronJobs with their last runs + one-off Jobs (e.g. migrations), newest first. */
+export function scheduledJobs(cronJobs: any[], jobs: any[], pods: any[], now = new Date()) {
+  const podByJob = new Map<string, string>();
+  for (const p of [...pods].sort((a, b) => Date.parse(a.metadata.creationTimestamp ?? 0) - Date.parse(b.metadata.creationTimestamp ?? 0))) {
+    const j = p.metadata?.labels?.['job-name'] ?? p.metadata?.labels?.['batch.kubernetes.io/job-name'];
+    if (j) podByJob.set(j, p.metadata.name);   // newest pod wins (retries)
+  }
+  const byStart = (a: any, b: any) => Date.parse(b.status?.startTime ?? b.metadata.creationTimestamp ?? 0) - Date.parse(a.status?.startTime ?? a.metadata.creationTimestamp ?? 0);
+  const ownedBy = (j: any) => j.metadata?.ownerReferences?.find((o: any) => o.kind === 'CronJob')?.name as string | undefined;
+  return {
+    cronJobs: cronJobs.map(c => {
+      const runs = jobs.filter(j => ownedBy(j) === c.metadata.name).sort(byStart).slice(0, 8).map(j => jobRun(j, podByJob));
+      const next = c.spec?.suspend ? undefined : nextCronRun(c.spec?.schedule ?? '', now);
+      return {
+        name: c.metadata.name,
+        schedule: c.spec?.schedule ?? '',
+        scheduleText: describeCron(c.spec?.schedule ?? ''),
+        suspended: !!c.spec?.suspend,
+        active: (c.status?.active ?? []).length,
+        lastScheduleAgeSec: age(c.status?.lastScheduleTime),
+        lastSuccessAgeSec: age(c.status?.lastSuccessfulTime),
+        nextRunInSec: next ? Math.round((next.getTime() - now.getTime()) / 1000) : undefined,
+        runs,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name)),
+    oneOffJobs: jobs.filter(j => !ownedBy(j)).sort(byStart).slice(0, 10).map(j => jobRun(j, podByJob)),
+  };
+}
+
 /** Workloads of app <repo> in ONE namespace (only works where the namespace has bound backstage-read). */
 export async function workloads(namespace: string, repo: string) {
   if (!config()) return undefined;
   // a label selector can't OR two keys → one query per label, merged
   const sels = [`app=${repo}`, `${APP_LABEL}=${repo}`].map(encodeURIComponent);
-  const [depsA, depsB, podsA, podsB, events] = await Promise.all([
+  const [depsA, depsB, podsA, podsB, events, cronA, cronB, jobsA, jobsB] = await Promise.all([
     ...sels.map(s => get(`/apis/apps/v1/namespaces/${namespace}/deployments?labelSelector=${s}`)),
     ...sels.map(s => get(`/api/v1/namespaces/${namespace}/pods?labelSelector=${s}`)),
     get(`/api/v1/namespaces/${namespace}/events?limit=200`),
+    ...sels.map(s => get(`/apis/batch/v1/namespaces/${namespace}/cronjobs?labelSelector=${s}`)),
+    ...sels.map(s => get(`/apis/batch/v1/namespaces/${namespace}/jobs?labelSelector=${s}`)),
   ]);
   const deps = mergeByName(depsA, depsB);
-  const pods = mergeByName(podsA, podsB);
+  const allPods = mergeByName(podsA, podsB);
+  const isJobPod = (p: any) => !!(p.metadata?.labels?.['job-name'] ?? p.metadata?.labels?.['batch.kubernetes.io/job-name']);
+  // job pods are shown with their job (Scheduled jobs), not in the Pods list
+  const pods = allPods && { items: allPods.items.filter(p => !isJobPod(p)) };
+  const jobs = scheduledJobs(mergeByName(cronA, cronB)?.items ?? [], mergeByName(jobsA, jobsB)?.items ?? [],
+    (allPods?.items ?? []).filter(isJobPod));
   if (!deps && !pods) return { readable: false, namespace };
   const podNames = new Set(((pods?.items ?? []) as any[]).map(p => p.metadata.name));
   const depNames = ((deps?.items ?? []) as any[]).map(d => String(d.metadata.name));
   return {
     readable: true,
     namespace,
+    cronJobs: jobs.cronJobs,
+    oneOffJobs: jobs.oneOffJobs,
     deployments: ((deps?.items ?? []) as any[]).map(d => ({
       name: d.metadata.name,
       replicas: d.spec?.replicas ?? 0,
