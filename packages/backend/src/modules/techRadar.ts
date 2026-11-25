@@ -19,6 +19,7 @@ export const DEFAULT_ENTRIES: Entry[] = [
   // languages & frameworks
   { id: 'python', title: 'Python 3 + FastAPI', quadrant: 'languages', ring: 'adopt', description: 'Golden path: Create pipeline → Python. Skeleton with tests, Dockerfile, /health.' },
   { id: 'java', title: 'Java 21 + Spring Boot', quadrant: 'languages', ring: 'trial', description: 'Template available (Create pipeline → Java); fewer apps run it so far.' },
+  { id: 'react', title: 'React 19 + Vite (web apps)', quadrant: 'languages', ring: 'trial', description: 'Create pipeline → React: TypeScript, Tailwind, TanStack Query, board design system, served by nginx. First app: agency-frontend.' },
   { id: 'typescript', title: 'TypeScript / React', quadrant: 'languages', ring: 'assess', description: 'No template yet — Backstage itself is TypeScript.' },
   { id: 'go', title: 'Go', quadrant: 'languages', ring: 'assess', description: 'Candidate for small services / CLIs; no template yet.' },
   // platform & infrastructure

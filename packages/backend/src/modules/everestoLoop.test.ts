@@ -1,5 +1,5 @@
 import { parse } from 'yaml';
-import { LOOP, ciYml, dependabotYml, isLoopV11, normalizeCi, readSwitches, runnerFor, setSwitch } from './everestoLoop';
+import { LOOP, ciYml, dependabotYml, isLoopV11, normalizeCi, readSwitches, runnerFor, setSwitch, testCommandOf } from './everestoLoop';
 
 const SW = { tests: true, semgrep: false, sonarqube: true, trivy: 'enforce' as const };
 
@@ -50,6 +50,10 @@ describe('dependabotYml', () => {
     expect(parse(dependabotYml('python')).updates.map((u: any) => u['package-ecosystem'])).toEqual(['pip', 'docker', 'github-actions']);
     expect(parse(dependabotYml('docker')).updates.map((u: any) => u['package-ecosystem'])).toEqual(['docker', 'github-actions']);
   });
+  it('adds npm for a Node / React repo on the docker stack (package.json)', () => {
+    expect(parse(dependabotYml('docker', { npm: true })).updates.map((u: any) => u['package-ecosystem'])).toEqual(['npm', 'docker', 'github-actions']);
+    expect(parse(dependabotYml('java', { npm: true })).updates[0]['package-ecosystem']).toBe('maven'); // the stack's own wins
+  });
   it('never proposes a new Python / Node / Java version of a base image', () => {
     const docker = parse(dependabotYml('python')).updates.find((u: any) => u['package-ecosystem'] === 'docker');
     expect(docker.ignore).toEqual([{ 'dependency-name': '*', 'update-types': ['version-update:semver-major', 'version-update:semver-minor'] }]);
@@ -77,5 +81,19 @@ describe('normalizeCi', () => {
   it('never jumps to another minor version', () => {
     const other = ciYml('a', 'python', SW, 'ubuntu-latest').replace(`# ${LOOP.version}`, '# v1.2.0');
     expect(normalizeCi(other).done).toEqual([]);
+  });
+});
+
+describe('test-command survives a (re)import', () => {
+  const own = ciYml('agency-frontend', 'docker', SW, runnerFor(true), 'bash ci/test.sh   # typecheck + tests');
+  it('is read from an existing Loop ci.yml', () => {
+    expect(testCommandOf(own)).toBe('bash ci/test.sh   # typecheck + tests');
+    expect(testCommandOf(ciYml('x', 'python', SW, runnerFor(true)))).toBeUndefined();
+    expect(testCommandOf(undefined)).toBeUndefined();
+  });
+  it('is written back into the generated ci.yml (valid YAML, right place)', () => {
+    const y = parse(ciYml('agency-frontend', 'docker', SW, runnerFor(true), testCommandOf(own)));
+    expect(y.jobs.loop.with['test-command']).toBe('bash ci/test.sh');
+    expect(Object.keys(y.jobs.loop.with)).toEqual(['stack', 'runner', 'tests', 'test-command', 'semgrep', 'sonarqube', 'trivy']);
   });
 });

@@ -22,7 +22,7 @@ import { ToolLogo } from '../tools/ToolLogo';
 /**
  * "Create pipeline" wizard: pick name, stack and tools (CI only — CD is “Create deployment”), then
  * "Continue" opens template:default/create-pipeline pre-filled (review → Create).
- * Supported today: Python, Java. Others are marked "coming soon".
+ * Supported today: Python, Java, React. Others are marked "coming soon".
  */
 
 type Stack = { id: string; name: string; hint: string; logo?: string; build: string; soon?: boolean };
@@ -33,7 +33,7 @@ export const STACKS: Stack[] = [
   { soon: true, id: 'go', name: 'Go', hint: 'net/http · go test', logo: 'go', build: 'go test ./...' },
   { soon: true, id: 'rust', name: 'Rust', hint: 'axum · cargo test', logo: 'rust', build: 'cargo test' },
   { soon: true, id: 'node', name: 'Node.js', hint: 'TypeScript · Express', logo: 'nodedotjs', build: 'npm test' },
-  { soon: true, id: 'react', name: 'React', hint: 'frontend · Vite', logo: 'react', build: 'npm run build' },
+  { id: 'react', name: 'React', hint: 'web app · Vite · TypeScript', logo: 'react', build: 'npm test + build' },
   { soon: true, id: 'dotnet', name: '.NET', hint: 'ASP.NET Core', logo: 'dotnet', build: 'dotnet test' },
   { id: 'repo', name: 'Repository only', hint: 'no CI — scripts, storage, docs', build: '' },
 ];
@@ -97,7 +97,8 @@ export const CreatePipelineDialog = ({ project, open, onClose, initialStack = 'p
   const [tools, setTools] = useState<string[]>(DEFAULT_ON);
   const repoOnly = stack === 'repo';
   const s = STACKS.find(x => x.id === stack)!;
-  const app = name || `${stack}-backend`; // repo = name, unique in the org (no project prefix)
+  const suggested = `${stack}-${stack === 'react' ? 'frontend' : 'backend'}`;
+  const app = name || suggested; // repo = name, unique in the org (no project prefix)
   const valid = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name || 'x') && app.length <= 63;
   const ciTools = CI_TOOLS.filter(t => t.id !== 'code' && t.id !== 'ci');
 
@@ -107,7 +108,7 @@ export const CreatePipelineDialog = ({ project, open, onClose, initialStack = 'p
       <DialogContent>
         <div className={classes.step} style={{ marginTop: 0 }}>1 · Name</div>
         <TextField
-          fullWidth variant="outlined" size="small" value={name} placeholder={`${stack}-backend`}
+          fullWidth variant="outlined" size="small" value={name} placeholder={suggested}
           onChange={e => setName(e.target.value.toLowerCase())}
           error={!valid}
           helperText={valid ? `Repository: Everesto-Inc/${app}` : 'lowercase a-z 0-9 -, max 63 characters in total'}

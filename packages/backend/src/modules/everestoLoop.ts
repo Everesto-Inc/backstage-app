@@ -66,7 +66,12 @@ export function normalizeCi(ciIn: string) {
 export const runnerFor = (isPublic: boolean) => (isPublic ? 'ubuntu-24.04-arm' : 'ubuntu-latest');
 
 /** The whole ci.yml of an application on Loop v1.1. */
-export function ciYml(repo: string, stack: Stack, sw: Switches, runner: string) {
+/** Pure: the `test-command:` of an existing Loop ci.yml (kept when a repo is (re)imported). */
+export function testCommandOf(ci: string | undefined): string | undefined {
+  return ci?.match(/^ {6}test-command: *(.+?) *$/m)?.[1];
+}
+
+export function ciYml(repo: string, stack: Stack, sw: Switches, runner: string, testCommand?: string) {
   return `# CI for ${repo} — managed by Backstage (Edit pipeline flips the switches below), built on Loop.
 # Every run ends with a scanned linux/arm64 image: ghcr.io/everesto-inc/${repo} (pushed from main only).
 # Gitleaks, Trivy scans and the image build always run. Add own jobs below with \`needs: loop\`.
@@ -94,7 +99,7 @@ jobs:
       stack: ${stack}
       runner: ${runner}
       tests: ${sw.tests}
-      semgrep: ${sw.semgrep}
+${testCommand ? `      test-command: ${testCommand}\n` : ''}      semgrep: ${sw.semgrep}
       sonarqube: ${sw.sonarqube}
       trivy: ${sw.trivy}
     secrets:
@@ -128,9 +133,10 @@ export function setSwitch(ci: string, key: BoolSwitch | 'trivy', value: boolean 
   return ci.replace(stack, m => `${m}\n      ${key}: ${value}`);
 }
 
-/** Pure: the default Dependabot config for a stack (plus Docker + GitHub Actions updates). */
-export function dependabotYml(stack: Stack) {
-  const lang = ({ java: 'maven', python: 'pip' } as Record<string, string | undefined>)[stack];
+/** Pure: the default Dependabot config for a stack (plus Docker + GitHub Actions updates).
+ *  `npm`: the repo has a package.json (e.g. React on stack docker) → npm updates too. */
+export function dependabotYml(stack: Stack, opts: { npm?: boolean } = {}) {
+  const lang = ({ java: 'maven', python: 'pip' } as Record<string, string | undefined>)[stack] ?? (opts.npm ? 'npm' : undefined);
   return `version: 2
 updates:
 ${lang ? `  - package-ecosystem: ${lang}

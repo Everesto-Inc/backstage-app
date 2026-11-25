@@ -25,7 +25,7 @@ import { infisicalDelete } from './everestoInfisical';
 import { component, setAnnotation } from './everestoYaml';
 import { spaceOf, unregisterApp } from './everestoRegistry';
 import { removeTenant } from './everestoTenants';
-import { Trivy, isLoopV11, normalizeCi, readSwitches, setSwitch } from './everestoLoop';
+import { Stack, Trivy, dependabotYml, isLoopV11, normalizeCi, readSwitches, setSwitch } from './everestoLoop';
 
 export const OWNER = 'Everesto-Inc';
 const PLATFORM = 'group:default/platform-team';
@@ -90,25 +90,6 @@ const STEP_RE = {
 };
 const ANNOTATION_KEY = { sonarqube: 'sonarqube.org/project-key', semgrep: 'everesto.live/semgrep', dependabot: 'everesto.live/dependabot' } as const;
 const ANNOTATION_VALUE = { sonarqube: (repo: string) => repo, semgrep: () => 'on', dependabot: () => 'on' };
-const dependabotYml = (stack: string) => `version: 2
-updates:
-  - package-ecosystem: ${stack === 'java' ? 'maven' : 'pip'}
-    directory: /
-    schedule: { interval: weekly }
-    cooldown: { default-days: 7 }   # don't propose versions younger than 7 days
-    open-pull-requests-limit: 5
-  - package-ecosystem: docker
-    directory: /
-    schedule: { interval: weekly }
-    cooldown: { default-days: 7 }
-    ignore:   # base images: patch + security only — a new Python / Node / Java version is a deliberate, tested change
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
-  - package-ecosystem: github-actions
-    directory: /
-    schedule: { interval: monthly }
-    cooldown: { default-days: 7 }
-`;
 
 /**
  * Pure: add/remove the Semgrep / SonarQube Loop stages in ci.yml and their annotations in catalog-info.yaml.
@@ -204,7 +185,8 @@ export async function setTools(config: Config, repo: string, change: ToolChange,
   }
 
   if (change.dependabot !== undefined && change.dependabot !== has.dependabot) {
-    files.push({ path: '.github/dependabot.yml', content: change.dependabot ? dependabotYml(stack) : null });
+    const npm = change.dependabot && (await readFile(token, repo, 'package.json')) !== undefined;
+    files.push({ path: '.github/dependabot.yml', content: change.dependabot ? dependabotYml(stack as Stack, { npm }) : null });
     catalog = setAnnotation(catalog, 'Component', undefined, ANNOTATION_KEY.dependabot, change.dependabot ? 'on' : undefined);
     done.push(`${change.dependabot ? 'add' : 'remove'} dependabot`);
   }

@@ -22,7 +22,7 @@ import { gh, githubToken, sonarProvision } from './everestoActions';
 import { OWNER, PROTECTED_SYSTEMS, allowed, commit, readFile } from './everestoManage';
 import { ROLE } from './everestoRoles';
 import { REGISTRY_REPO, readRegistry, registerApp } from './everestoRegistry';
-import { LOOP, STACKS, Stack, Switches, ciYml, dependabotYml, runnerFor } from './everestoLoop';
+import { LOOP, STACKS, Stack, Switches, ciYml, dependabotYml, runnerFor, testCommandOf } from './everestoLoop';
 
 export const IMPORT_BRANCH = 'backstage/onboard-loop';
 /** Repos that are platform plumbing — never imported into a tenant space. */
@@ -171,8 +171,12 @@ export async function importRepo(config: Config, space: string, input: ImportInp
   const removed = (Array.isArray(workflows) ? workflows : []).map(f => String(f.path)).filter(p => /\.ya?ml$/.test(p) && p !== '.github/workflows/ci.yml');
   const hadCatalog = (await gh(token, 'GET', `/repos/${OWNER}/${repo}/contents/catalog-info.yaml?ref=${base}`)).ok;
   const hasDocs = (await gh(token, 'GET', `/repos/${OWNER}/${repo}/contents/mkdocs.yml?ref=${base}`)).ok;
+  const hasNpm = (await gh(token, 'GET', `/repos/${OWNER}/${repo}/contents/package.json?ref=${base}`)).ok;
+  // a repo that already runs Loop keeps its own test command (else Docker-stack tests would silently stop)
+  const oldCi = (await gh(token, 'GET', `/repos/${OWNER}/${repo}/contents/.github/workflows/ci.yml?ref=${base}`)).json?.content;
+  const testCommand = testCommandOf(oldCi ? Buffer.from(oldCi, 'base64').toString('utf8') : undefined);
   const files: { path: string; content: string | null }[] = [
-    { path: '.github/workflows/ci.yml', content: ciYml(repo, input.stack, input, runnerFor(!info.json.private)) },
+    { path: '.github/workflows/ci.yml', content: ciYml(repo, input.stack, input, runnerFor(!info.json.private), testCommand) },
     { path: 'catalog-info.yaml', content: catalogInfo(repo, space, String(info.json.description ?? ''), input, hasDocs) },
     ...removed.map(path => ({ path, content: null })),
   ];
@@ -181,7 +185,7 @@ export async function importRepo(config: Config, space: string, input: ImportInp
     const text = props ? Buffer.from(props, 'base64').toString('utf8') : '';
     files.push({ path: 'sonar-project.properties', content: /^sonar\.projectKey=/m.test(text) ? text.replace(/^sonar\.projectKey=.*$/m, `sonar.projectKey=${repo}`) : `sonar.projectKey=${repo}\n${text}` });
   }
-  if (input.dependabot) files.push({ path: '.github/dependabot.yml', content: dependabotYml(input.stack) });
+  if (input.dependabot) files.push({ path: '.github/dependabot.yml', content: dependabotYml(input.stack, { npm: hasNpm }) });
   await commit(token, repo, `onboard ${repo} to space ${space} on Loop ${LOOP.version} (Backstage, by ${who})`, files, IMPORT_BRANCH);
   done.push(`branch ${IMPORT_BRANCH}: ci.yml (Loop ${LOOP.version}), catalog-info.yaml${removed.length ? `, removed ${removed.length} old workflow(s)` : ''}`);
 
