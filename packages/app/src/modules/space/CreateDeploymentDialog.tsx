@@ -22,7 +22,7 @@ import { STATUS } from '../tools/charts';
  */
 type Result = { done: string[]; tag: string; commands: { title: string; cmd: string; secret?: boolean }[]; infisicalUrl?: string };
 type Row = { name: string; value: string; required?: boolean; hint?: string; example?: string };
-type EnvTemplate = { found: boolean; path: string; url: string; vars: { name: string; required: boolean; hint?: string; example?: string }[] };
+type EnvTemplate = { found: boolean; path: string; url: string; vars: { name: string; kind?: 'secret' | 'config'; required: boolean; hint?: string; example?: string }[] };
 const REDIS_PROVIDED = ['REDIS_URL', 'REDIS_KEY_PREFIX'];
 
 export const CmdBox = ({ title, cmd, secret }: { title: string; cmd: string; secret?: boolean }) => (
@@ -50,13 +50,15 @@ function valuePlaceholder(r: Row, secret: boolean | undefined, exempt: string[])
 /** Where the pre-filled secrets came from (or how to get that). */
 const TemplateNote = ({ repo, template }: { repo: string; template?: EnvTemplate }) => {
   if (template?.found && !template.vars.length) {
-    return <><a href={template.url} target="_blank" rel="noopener">{template.path}</a> has no variables yet — add one <code>NAME=</code> per line (<code># optional</code> for optional ones).</>;
+    return <><a href={template.url} target="_blank" rel="noopener">{template.path}</a> has no variables yet — add one <code>NAME=</code> per line, tagged <code># secret</code> or <code># config</code> (add <code>, optional</code> if it may stay empty).</>;
   }
   if (template?.found) {
-    const required = template.vars.filter(v => v.required).length;
-    return <>Pre-filled from <a href={template.url} target="_blank" rel="noopener">{template.path}</a>: {required} required (fill them), {template.vars.length - required} optional (empty = CHANGE_ME, set later in Infisical).</>;
+    const secrets = template.vars.filter(v => v.kind !== 'config');
+    const required = secrets.filter(v => v.required).length;
+    const config = template.vars.length - secrets.length;
+    return <>Pre-filled from <a href={template.url} target="_blank" rel="noopener">{template.path}</a>: {required} required (fill them), {secrets.length - required} optional (empty = CHANGE_ME, set later in Infisical){config ? <>; {config} config value{config > 1 ? 's' : ''} below</> : ''}.</>;
   }
-  if (repo) return <>No {template?.path ?? '.env.example'} in {repo} — add one (one <code>NAME=</code> per line, <code># optional</code> for optional ones) and this list fills itself.</>;
+  if (repo) return <>No {template?.path ?? '.env.example'} in {repo} — add one (one <code>NAME=</code> per line, tagged <code># secret</code> or <code># config</code>, <code>, optional</code> if it may stay empty) and this list fills itself.</>;
   return <>Pick an application: its <code>.env.example</code> fills this list.</>;
 };
 
@@ -114,12 +116,14 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
     api('GET', `/apps/${encodeURIComponent(repo)}/env-template`).then((tpl: EnvTemplate) => {
       if (!live) return;
       setTemplate(tpl);
-      setSecrets(tpl.vars.map(v => ({ name: v.name, value: '', required: v.required, hint: v.hint, example: v.example })));
-    }, () => { if (live) { setTemplate(undefined); setSecrets([]); } });
+      // `# config` → Config, pre-filled with the value from .env.example; everything else → Secrets (typed in)
+      setSecrets(tpl.vars.filter(v => v.kind !== 'config').map(v => ({ name: v.name, value: '', required: v.required, hint: v.hint, example: v.example })));
+      setConfig(tpl.vars.filter(v => v.kind === 'config').map(v => ({ name: v.name, value: v.example ?? '', required: v.required, hint: v.hint })));
+    }, () => { if (live) { setTemplate(undefined); setSecrets([]); setConfig([]); } });
     return () => { live = false; };
   }, [repo]); // eslint-disable-line react-hooks/exhaustive-deps
   const exempt = redis ? REDIS_PROVIDED : [];
-  const missing = secrets.filter(s => s.required && !exempt.includes(s.name) && !s.value.trim()).map(s => s.name);
+  const missing = [...secrets, ...config].filter(s => s.required && !exempt.includes(s.name) && !s.value.trim()).map(s => s.name);
 
   const create = async () => {
     setBusy(true);
@@ -177,14 +181,17 @@ export const CreateDeploymentDialog = ({ project, apps, open, onClose }: {
                 Stored in Infisical project {repo || '<app>'}-gitops → dev, never in git.{' '}
                 <TemplateNote repo={repo} template={template} />
               </>} />
-            <Rows title="Config (not secret)" rows={config} setRows={setConfig} hint="Plain environment variables, written into the deployment (visible in git), e.g. LOG_LEVEL=info" />
+            <Rows title="Config (not secret)" rows={config} setRows={setConfig}
+              hint={<>Plain environment variables, written into the deployment (visible in git). Pre-filled from the variables tagged <code># config</code> in .env.example — check the values.</>} />
 
             <Grid container spacing={2} style={{ marginTop: 8 }}>
               <Grid item xs={12}>
                 <TextField fullWidth size="small" variant="outlined" label="Namespace (short name)" value={nsKey} placeholder={repo.split('-')[0] || 'python'}
                   onChange={e => setNsKey(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  error={!!key && !/^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/.test(key)}
-                  helperText={`→ namespaces dev-${key || '<short>'} and prod-${key || '<short>'} (must be unused — checked when you create)`} />
+                  error={!!key && (!/^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$/.test(key) || /^(dev|prod)-/.test(key))}
+                  helperText={/^(dev|prod)-/.test(key)
+                    ? `leave out "${key.split('-')[0]}-" — it is added automatically (now: dev-${key})`
+                    : `→ namespaces dev-${key || '<short>'} and prod-${key || '<short>'} (must be unused — checked when you create)`} />
               </Grid>
               <Grid item xs={12}>
                 <FormControlLabel control={<Checkbox color="primary" checked={publicUrl} onChange={e => setPublicUrl(e.target.checked)} />}

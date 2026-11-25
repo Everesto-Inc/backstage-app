@@ -5,6 +5,7 @@
  *   CI app           POST /apps/:repo/tools | delete | build
  *   CD               POST /apps/:repo/deployment[/delete|/eso-login] · deploy · promote · GET builds | status | k8s[/logs]
  *   secrets          GET/POST /apps/:repo/secrets[/delete]  (values write-only)
+ *   config           GET/POST /apps/:repo/config            (plain env of the deployment, in git)
  *   spaces, members  /entities/:entity/spaces · /spaces/:space/members[/remove]
  *   access sync      POST /access/sync (+ every 30 min): GitHub, ArgoCD, SonarQube follow the space roles
  *
@@ -20,6 +21,7 @@ import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import { notificationService } from '@backstage/plugin-notifications-node';
 import { ROLE, ToolChange, allowed, appInfo, deleteApp, readFile, setTools } from './everestoManage';
 import { builds, createDeployment, deleteDeployment, deploy, devHost, newEsoLogin, nsKeyOf, promote, secretDelete, secretSet, secretsList, setupCommands } from './everestoDeploy';
+import { configList, configSet } from './everestoConfigEnv';
 import { gh, githubToken } from './everestoActions';
 import { syncSonarAccess } from './everestoSonarAccess';
 import { readRegistry } from './everestoRegistry';
@@ -263,6 +265,25 @@ export const everestoInsightsPlugin = createBackendPlugin({
             const { refs, who } = await caller(req);
             const out = await secretDelete(config, repo, secEnv, str(req.body?.name), refs);
             logger.info(`secret ${out.deleted} (${secEnv}) of ${repo} DELETED by ${who}`);
+            res.json(out);
+          } catch (e) { fail(res, e); }
+        });
+
+        router.get('/apps/:repo/config', async (req, res) => {
+          const { repo } = req.params;
+          const cfgEnv = envOf(req.query.env);
+          if (!validRepo(repo) || !cfgEnv) { res.status(400).json({ error: 'invalid repo or env' }); return; }
+          try { const { refs } = await caller(req); res.json(await configList(config, repo, cfgEnv, refs)); } catch (e) { fail(res, e); }
+        });
+
+        router.post('/apps/:repo/config', async (req, res) => {
+          const { repo } = req.params;
+          const cfgEnv = envOf(req.body?.env);
+          if (!validRepo(repo) || !cfgEnv) { res.status(400).json({ error: 'invalid repo or env' }); return; }
+          try {
+            const { refs, who } = await caller(req);
+            const out = await configSet(config, repo, cfgEnv, req.body?.vars, refs, who);
+            logger.info(`config (${cfgEnv}) of ${repo} changed by ${who}`);
             res.json(out);
           } catch (e) { fail(res, e); }
         });

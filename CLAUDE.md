@@ -275,6 +275,10 @@ Org data lives in the private repo `Everesto-Inc/everesto-catalog` (sibling fold
 - Backstage has **no cluster access** — it returns kubectl commands. Tenant pods need node label
   `everesto.live/pool=tenants`. CD tool: ArgoCD only (no Ansible). Grafana: placeholder.
 - Backstage ↔ Infisical: identity `backstage-platform` (org Admin), keys INFISICAL_CLIENT_ID / _SECRET / _ORG_ID.
+- **`.env.example` tags** (decided 2026-11-25): `# config` → Create deployment's Config (plain env in
+  `apps/<env>/deployment.yaml`, pre-filled with the value) · `# secret` or no tag → Infisical · `, optional` → may stay
+  empty. Config is edited later in the deployment's Secrets tab → **Config** (commit to the gitops repo → Sync; dev:
+  developers+, prod: managers). Hand-edited multi-service deployments are read-only there (`everestoConfigEnv.ts`).
 
 ## 13. Security + guardrails (decided 2026-11-19)
 

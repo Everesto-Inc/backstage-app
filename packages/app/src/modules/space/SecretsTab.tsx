@@ -14,9 +14,10 @@ import { CmdBox } from './CreateDeploymentDialog';
 import { SetupStep, SetupSteps } from './CdActions';
 import { ago, insightsTarget, nsOf } from './insights';
 import { useSpaceRole } from './data';
+import { ConfigPanel } from './ConfigPanel';
 
 /**
- * Deployment → Secrets tab (real). Infisical project <app>-gitops, env dev / prod.
+ * Deployment → Secrets tab (real). Infisical project <app>-gitops, env dev / prod — plus the plain Config (ConfigPanel).
  * Names + last change only; values are write-only (never sent to the browser).
  * dev: developers / maintainers / owners · prod: maintainers / owners (enforced by the backend).
  */
@@ -112,6 +113,8 @@ export const SecretsTab = ({ entity }: { entity: Entity }) => {
           Values are never shown here — only written. The cluster picks up changes within 5 minutes; the app reads them when it (re)starts.
         </Typography>
       </Box>
+
+      <ConfigPanel repo={repo} env={env} />
 
       <Box mt={2}>
         <CmdBox title={`After changing a secret — apply it now (refresh the secrets now + restart ${repo} in ${nsOf(entity, env)}). Only works once the app runs there: first setup = Edit deployment → Setup commands, then Sync.`} cmd={applyCmd ?? d?.applyCmd ?? ''} />
